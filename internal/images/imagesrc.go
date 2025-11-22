@@ -76,6 +76,13 @@ func Shutdown() {
 
 func GetArtistImage(ctx context.Context, opts ArtistImageOpts) (string, error) {
 	l := logger.FromContext(ctx)
+	if imgsrc.spotifyC != nil {
+		img, err := imgsrc.spotifyC.GetArtistImages(ctx, opts.Aliases)
+		if err != nil {
+			return "", err
+		}
+		return img, nil
+	}
 	if imgsrc.subsonicEnabled {
 		img, err := imgsrc.subsonicC.GetArtistImage(ctx, opts.Aliases[0])
 		if err != nil {
@@ -85,13 +92,6 @@ func GetArtistImage(ctx context.Context, opts ArtistImageOpts) (string, error) {
 			return img, nil
 		}
 		l.Debug().Msg("Could not find artist image from Subsonic")
-	}
-	if imgsrc.spotifyC != nil {
-		img, err := imgsrc.spotifyC.GetArtistImages(ctx, opts.Aliases)
-		if err != nil {
-			return "", err
-		}
-		return img, nil
 	}
 	if imgsrc.deezerC != nil {
 		img, err := imgsrc.deezerC.GetArtistImages(ctx, opts.Aliases)
@@ -105,6 +105,14 @@ func GetArtistImage(ctx context.Context, opts ArtistImageOpts) (string, error) {
 }
 func GetAlbumImage(ctx context.Context, opts AlbumImageOpts) (string, error) {
 	l := logger.FromContext(ctx)
+	if imgsrc.spotifyEnabled {
+		l.Debug().Msg("Attempting to find album image from Spotify")
+		img, err := imgsrc.spotifyC.GetAlbumImages(ctx, opts.Artists, opts.Album)
+		if err != nil {
+			return "", err
+		}
+		return img, nil
+	}
 	if imgsrc.subsonicEnabled {
 		img, err := imgsrc.subsonicC.GetAlbumImage(ctx, opts.Artists[0], opts.Album)
 		if err != nil {
@@ -114,14 +122,6 @@ func GetAlbumImage(ctx context.Context, opts AlbumImageOpts) (string, error) {
 			return img, nil
 		}
 		l.Debug().Msg("Could not find album cover from Subsonic")
-	}
-	if imgsrc.spotifyEnabled {
-		l.Debug().Msg("Attempting to find album image from Spotify")
-		img, err := imgsrc.spotifyC.GetAlbumImages(ctx, opts.Artists, opts.Album)
-		if err != nil {
-			return "", err
-		}
-		return img, nil
 	}
 	if imgsrc.caaEnabled {
 		l.Debug().Msg("Attempting to find album image from CoverArtArchive")

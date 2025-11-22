@@ -45,18 +45,19 @@ jobs:
         uses: robherley/go-test-action@v0
 
   push_to_registry:
-    name: Push Docker image to Docker Hub (release)
+    name: Push Docker image to GitHub Container Registry (release)
     if: startsWith(github.ref, 'refs/tags/')
     needs: test
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
 
-      - name: Log in to Docker Hub
+      - name: Log in to GitHub Container Registry
         uses: docker/login-action@v3
         with:
-          username: ${{ secrets.DOCKER_USERNAME }}
-          password: ${{ secrets.DOCKER_TOKEN }}
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
@@ -72,25 +73,26 @@ jobs:
           file: ./Dockerfile
           push: true
           tags: |
-            gabehf/koito:latest
-            gabehf/koito:${{ env.KOITO_VERSION }}
+            ghcr.io/doda-dev/koito:latest
+            ghcr.io/doda-dev/koito:${{ env.KOITO_VERSION }}
           build-args: |
             KOITO_VERSION=${{ env.KOITO_VERSION }}
           platforms: linux/amd64,linux/arm64
 
   push_dev:
-    name: Push Docker image (dev branch)
+    name: Push Docker image to GitHub Container Registry (dev branch)
     if: github.ref == 'refs/heads/main'
     needs: test
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
 
-      - name: Log in to Docker Hub
+      - name: Log in to GitHub Container Registry
         uses: docker/login-action@v3
         with:
-          username: ${{ secrets.DOCKER_USERNAME }}
-          password: ${{ secrets.DOCKER_TOKEN }}
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
@@ -102,8 +104,8 @@ jobs:
           file: ./Dockerfile
           push: true
           tags: |
-            gabehf/koito:dev
-            gabehf/koito:dev-${{ github.sha }}
+            ghcr.io/doda-dev/koito:dev
+            ghcr.io/doda-dev/koito:dev-${{ github.sha }}
           build-args: |
             KOITO_VERSION=dev
           platforms: linux/amd64,linux/arm64
