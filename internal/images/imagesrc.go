@@ -15,16 +15,19 @@ import (
 type ImageSource struct {
 	deezerEnabled   bool
 	deezerC         *DeezerClient
+	caaEnabled      bool
+	spotifyEnabled  bool
+	spotifyC        *SpotifyClient
 	subsonicEnabled bool
 	subsonicC       *SubsonicClient
 	lastfmEnabled   bool
 	lastfmC         *LastFMClient
-	caaEnabled      bool
 }
 type ImageSourceOpts struct {
 	UserAgent      string
 	EnableCAA      bool
 	EnableDeezer   bool
+	EnableSpotify  bool
 	EnableSubsonic bool
 	EnableLastFM   bool
 }
@@ -60,6 +63,10 @@ func Initialize(opts ImageSourceOpts) {
 			imgsrc.subsonicEnabled = true
 			imgsrc.subsonicC = NewSubsonicClient()
 		}
+		if opts.EnableSpotify {
+			imgsrc.spotifyEnabled = true
+			imgsrc.spotifyC = NewSpotifyClient()
+		}
 		if opts.EnableLastFM {
 			imgsrc.lastfmEnabled = true
 			imgsrc.lastfmC = NewLastFMClient()
@@ -68,7 +75,12 @@ func Initialize(opts ImageSourceOpts) {
 }
 
 func Shutdown() {
-	imgsrc.deezerC.Shutdown()
+	if imgsrc.deezerC != nil {
+		imgsrc.deezerC.Shutdown()
+	}
+	if imgsrc.spotifyC != nil {
+		imgsrc.spotifyC.Shutdown()
+	}
 }
 
 func GetArtistImage(ctx context.Context, opts ArtistImageOpts) (string, error) {
@@ -82,6 +94,16 @@ func GetArtistImage(ctx context.Context, opts ArtistImageOpts) (string, error) {
 		}
 	} else {
 		l.Debug().Msg("GetArtistImage: Subsonic image fetching is disabled")
+	}
+	if imgsrc.spotifyEnabled {
+		img, err := imgsrc.spotifyC.GetArtistImages(ctx, opts.Aliases)
+		if err != nil {
+			l.Debug().Err(err).Msg("GetArtistImage: Could not find artist image from Spotify")
+		} else if img != "" {
+			return img, nil
+		}
+	} else {
+		l.Debug().Msg("GetArtistImage: Spotify image fetching is disabled")
 	}
 	if imgsrc.lastfmEnabled {
 		img, err := imgsrc.lastfmC.GetArtistImage(ctx, opts.MBID, opts.Aliases[0])
@@ -119,6 +141,14 @@ func GetAlbumImage(ctx context.Context, opts AlbumImageOpts) (string, error) {
 			return img, nil
 		}
 		l.Debug().Msg("Could not find album cover from Subsonic")
+	}
+	if imgsrc.spotifyEnabled {
+		l.Debug().Msg("Attempting to find album image from Spotify")
+		img, err := imgsrc.spotifyC.GetAlbumImages(ctx, opts.Artists, opts.Album)
+		if err != nil {
+			return "", err
+		}
+		return img, nil
 	}
 	if imgsrc.caaEnabled {
 		l.Debug().Msg("Attempting to find album image from CoverArtArchive")
