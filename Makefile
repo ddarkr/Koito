@@ -6,7 +6,7 @@ endif
 .PHONY: all test clean client
 
 postgres.schemadump:
-	docker run --rm --network=host --env PGPASSWORD=secret -v "./db:/tmp/dump" \
+	podman run --rm --network=host --env PGPASSWORD=secret -v "./db:/tmp/dump" \
 	postgres pg_dump \
 	--schema-only \
 	--host=localhost \
@@ -18,19 +18,19 @@ postgres.run:
 	docker run --name koito-db -p 5432:5432 -v koito_dev_db:/var/lib/postgresql -e POSTGRES_PASSWORD=secret -d postgres
 
 postgres.run-scratch:
-	docker run --name koito-scratch -p 5433:5432 -e POSTGRES_PASSWORD=secret -d postgres
+	podman run --name koito-scratch -p 5433:5432 -e POSTGRES_PASSWORD=secret -d postgres
 
 postgres.start:
-	docker start koito-db
+	podman start koito-db
 
 postgres.stop:
-	docker stop koito-db
+	podman stop koito-db
 
 postgres.remove:
-	docker stop koito-db && docker rm koito-db
+	podman stop koito-db && podman rm koito-db
 
 postgres.remove-scratch:
-	docker stop koito-scratch && docker rm koito-scratch
+	podman stop koito-scratch && podman rm koito-scratch
 
 api.debug: postgres.start
 	go run cmd/api/main.go

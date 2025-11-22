@@ -2,10 +2,14 @@ package images
 
 import (
 	"context"
+	"encoding/base64"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"net/http"
+	"net/url"
 	"strings"
+	"time"
 
 	"github.com/gabehf/koito/internal/cfg"
 	"github.com/gabehf/koito/internal/logger"
@@ -15,11 +19,26 @@ import (
 	"github.com/zmb3/spotify/v2"
 )
 
+// authTransport adds Authorization header to HTTP requests
+type authTransport struct {
+	client *SpotifyClient
+}
+
+func (t *authTransport) RoundTrip(req *http.Request) (*http.Response, error) {
+	if t.client.accessToken != "" {
+		req.Header.Set("Authorization", "Bearer "+t.client.accessToken)
+	}
+	return http.DefaultTransport.RoundTrip(req)
+}
+
 type SpotifyClient struct {
 	client       *spotify.Client
+	httpClient   *http.Client
 	url          string
 	userAgent    string
 	requestQueue *queue.RequestQueue
+	accessToken  string
+	tokenExpiry  time.Time
 }
 
 const (
@@ -27,15 +46,86 @@ const (
 )
 
 func NewSpotifyClient() *SpotifyClient {
-	// For now, create a basic client - authentication will be added later
-	client := spotify.New(http.DefaultClient)
-
 	ret := new(SpotifyClient)
-	ret.client = client
 	ret.url = spotifyBaseUrl
 	ret.userAgent = cfg.UserAgent()
 	ret.requestQueue = queue.NewRequestQueue(5, 5)
+
+	// Create authenticated HTTP client
+	ret.httpClient = &http.Client{
+		Transport: &authTransport{client: ret},
+	}
+
+	// Authenticate with Spotify
+	err := ret.authenticate()
+	if err != nil {
+		// Log error but don't fail - client will work without auth for now
+		// This allows the system to continue working even if Spotify auth fails
+	}
+
+	// Create Spotify client with authenticated HTTP client
+	ret.client = spotify.New(ret.httpClient)
+
 	return ret
+}
+
+func (c *SpotifyClient) authenticate() error {
+	clientID := cfg.SpotifyClientId()
+	clientSecret := cfg.SpotifyClientSecret()
+
+	if clientID == "" || clientSecret == "" {
+		return fmt.Errorf("Spotify client ID or secret not configured")
+	}
+
+	// Prepare the request
+	data := url.Values{}
+	data.Set("grant_type", "client_credentials")
+
+	req, err := http.NewRequest("POST", "https://accounts.spotify.com/api/token", strings.NewReader(data.Encode()))
+	if err != nil {
+		return fmt.Errorf("failed to create auth request: %w", err)
+	}
+
+	// Set headers
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	auth := base64.StdEncoding.EncodeToString([]byte(clientID + ":" + clientSecret))
+	req.Header.Set("Authorization", "Basic "+auth)
+
+	// Make the request
+	resp, err := c.httpClient.Do(req)
+	if err != nil {
+		return fmt.Errorf("failed to authenticate with Spotify: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		return fmt.Errorf("Spotify auth failed with status: %d", resp.StatusCode)
+	}
+
+	// Parse response
+	var tokenResp struct {
+		AccessToken string `json:"access_token"`
+		TokenType   string `json:"token_type"`
+		ExpiresIn   int    `json:"expires_in"`
+	}
+
+	if err := json.NewDecoder(resp.Body).Decode(&tokenResp); err != nil {
+		return fmt.Errorf("failed to parse auth response: %w", err)
+	}
+
+	// Store token
+	c.accessToken = tokenResp.AccessToken
+	c.tokenExpiry = time.Now().Add(time.Duration(tokenResp.ExpiresIn) * time.Second)
+
+	return nil
+}
+
+func (c *SpotifyClient) ensureToken(ctx context.Context) error {
+	if c.accessToken == "" || time.Now().After(c.tokenExpiry.Add(-5*time.Minute)) {
+		// Token is missing or will expire in less than 5 minutes
+		return c.authenticate()
+	}
+	return nil
 }
 
 func (c *SpotifyClient) Shutdown() {
@@ -46,6 +136,12 @@ func (c *SpotifyClient) Shutdown() {
 func (c *SpotifyClient) searchEntity(ctx context.Context, query string, searchType spotify.SearchType) (*spotify.SearchResult, error) {
 	l := logger.FromContext(ctx)
 	l.Debug().Msgf("Searching Spotify for: %s", query)
+
+	// Ensure we have a valid token
+	if err := c.ensureToken(ctx); err != nil {
+		l.Err(err).Msg("Failed to ensure valid Spotify token")
+		return nil, fmt.Errorf("searchEntity: %w", err)
+	}
 
 	results, err := c.client.Search(ctx, query, searchType)
 	if err != nil {
