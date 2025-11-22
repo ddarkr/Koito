@@ -12,16 +12,19 @@ import (
 )
 
 type ImageSource struct {
-	deezerEnabled   bool
-	deezerC         *DeezerClient
+	deezerEnabled  bool
+	deezerC        *DeezerClient
+	caaEnabled     bool
+	spotifyEnabled bool
+	spotifyC       *SpotifyClient
 	subsonicEnabled bool
-	subsonicC       *SubsonicClient
-	caaEnabled      bool
+	subsonicC      *SubsonicClient
 }
 type ImageSourceOpts struct {
-	UserAgent      string
-	EnableCAA      bool
-	EnableDeezer   bool
+	UserAgent     string
+	EnableCAA     bool
+	EnableDeezer  bool
+	EnableSpotify bool
 	EnableSubsonic bool
 }
 
@@ -55,11 +58,20 @@ func Initialize(opts ImageSourceOpts) {
 			imgsrc.subsonicEnabled = true
 			imgsrc.subsonicC = NewSubsonicClient()
 		}
+		if opts.EnableSpotify {
+			imgsrc.spotifyEnabled = true
+			imgsrc.spotifyC = NewSpotifyClient()
+		}
 	})
 }
 
 func Shutdown() {
-	imgsrc.deezerC.Shutdown()
+	if imgsrc.deezerC != nil {
+		imgsrc.deezerC.Shutdown()
+	}
+	if imgsrc.spotifyC != nil {
+		imgsrc.spotifyC.Shutdown()
+	}
 }
 
 func GetArtistImage(ctx context.Context, opts ArtistImageOpts) (string, error) {
@@ -73,6 +85,13 @@ func GetArtistImage(ctx context.Context, opts ArtistImageOpts) (string, error) {
 			return img, nil
 		}
 		l.Debug().Msg("Could not find artist image from Subsonic")
+	}
+	if imgsrc.spotifyC != nil {
+		img, err := imgsrc.spotifyC.GetArtistImages(ctx, opts.Aliases)
+		if err != nil {
+			return "", err
+		}
+		return img, nil
 	}
 	if imgsrc.deezerC != nil {
 		img, err := imgsrc.deezerC.GetArtistImages(ctx, opts.Aliases)
@@ -95,6 +114,14 @@ func GetAlbumImage(ctx context.Context, opts AlbumImageOpts) (string, error) {
 			return img, nil
 		}
 		l.Debug().Msg("Could not find album cover from Subsonic")
+	}
+	if imgsrc.spotifyEnabled {
+		l.Debug().Msg("Attempting to find album image from Spotify")
+		img, err := imgsrc.spotifyC.GetAlbumImages(ctx, opts.Artists, opts.Album)
+		if err != nil {
+			return "", err
+		}
+		return img, nil
 	}
 	if imgsrc.caaEnabled {
 		l.Debug().Msg("Attempting to find album image from CoverArtArchive")

@@ -35,6 +35,9 @@ const (
 	DEFAULT_THEME_ENV              = "KOITO_DEFAULT_THEME"
 	DISABLE_DEEZER_ENV             = "KOITO_DISABLE_DEEZER"
 	DISABLE_COVER_ART_ARCHIVE_ENV  = "KOITO_DISABLE_COVER_ART_ARCHIVE"
+	DISABLE_SPOTIFY_ENV            = "KOITO_DISABLE_SPOTIFY"
+	SPOTIFY_CLIENT_ID_ENV          = "KOITO_SPOTIFY_CLIENT_ID"
+	SPOTIFY_CLIENT_SECRET_ENV      = "KOITO_SPOTIFY_CLIENT_SECRET"
 	DISABLE_MUSICBRAINZ_ENV        = "KOITO_DISABLE_MUSICBRAINZ"
 	SUBSONIC_URL_ENV               = "KOITO_SUBSONIC_URL"
 	SUBSONIC_PARAMS_ENV            = "KOITO_SUBSONIC_PARAMS"
@@ -69,6 +72,9 @@ type config struct {
 	defaultTheme           string
 	disableDeezer          bool
 	disableCAA             bool
+	disableSpotify         bool
+	spotifyClientId        string
+	spotifyClientSecret    string
 	disableMusicBrainz     bool
 	subsonicUrl            string
 	subsonicParams         string
@@ -158,6 +164,9 @@ func loadConfig(getenv func(string) string, version string) (*config, error) {
 	cfg.enableFullImageCache = parseBool(getenv(ENABLE_FULL_IMAGE_CACHE_ENV))
 	cfg.disableDeezer = parseBool(getenv(DISABLE_DEEZER_ENV))
 	cfg.disableCAA = parseBool(getenv(DISABLE_COVER_ART_ARCHIVE_ENV))
+	cfg.disableSpotify = parseBool(getenv(DISABLE_SPOTIFY_ENV))
+	cfg.spotifyClientId = getenv(SPOTIFY_CLIENT_ID_ENV)
+	cfg.spotifyClientSecret = getenv(SPOTIFY_CLIENT_SECRET_ENV)
 	cfg.disableMusicBrainz = parseBool(getenv(DISABLE_MUSICBRAINZ_ENV))
 	cfg.subsonicUrl = getenv(SUBSONIC_URL_ENV)
 	cfg.subsonicParams = getenv(SUBSONIC_PARAMS_ENV)
@@ -335,6 +344,24 @@ func CoverArtArchiveDisabled() bool {
 	lock.RLock()
 	defer lock.RUnlock()
 	return globalConfig.disableCAA
+}
+
+func SpotifyDisabled() bool {
+	lock.RLock()
+	defer lock.RUnlock()
+	return globalConfig.disableSpotify
+}
+
+func SpotifyClientId() string {
+	lock.RLock()
+	defer lock.RUnlock()
+	return globalConfig.spotifyClientId
+}
+
+func SpotifyClientSecret() string {
+	lock.RLock()
+	defer lock.RUnlock()
+	return globalConfig.spotifyClientSecret
 }
 
 func MusicBrainzDisabled() bool {
