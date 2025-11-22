@@ -6,7 +6,7 @@ ENV BUILD_TARGET=docker
 
 WORKDIR /client
 COPY ./client/package.json ./client/yarn.lock ./
-RUN yarn install
+RUN yarn install --network-timeout 1000000
 COPY ./client .
 
 RUN yarn run build
