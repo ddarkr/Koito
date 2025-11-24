@@ -10,6 +10,7 @@ import (
 	"net/http"
 	"net/url"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/gabehf/koito/internal/cfg"
@@ -40,6 +41,7 @@ type SpotifyClient struct {
 	requestQueue *queue.RequestQueue
 	accessToken  string
 	tokenExpiry  time.Time
+	tokenMutex   sync.Mutex
 }
 
 const (
@@ -75,11 +77,12 @@ func (c *SpotifyClient) authenticate() error {
 	clientSecret := cfg.SpotifyClientSecret()
 
 	if clientID == "" || clientSecret == "" {
+		logger.Get().Error().Bool("client_id_set", clientID != "").Bool("client_secret_set", clientSecret != "").Msg("Spotify client ID or secret not configured")
 		return fmt.Errorf("Spotify client ID or secret not configured")
 	}
 
 	// Debug log client ID (without secret for security)
-	logger.Get().Debug().Str("client_id", clientID).Msg("Attempting Spotify authentication")
+	logger.Get().Debug().Str("client_id", clientID).Bool("client_secret_set", clientSecret != "").Msg("Attempting Spotify authentication")
 
 	// Prepare the request
 	data := url.Values{}
@@ -92,6 +95,7 @@ func (c *SpotifyClient) authenticate() error {
 
 	// Set headers
 	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	req.Header.Set("User-Agent", c.userAgent)
 	auth := base64.StdEncoding.EncodeToString([]byte(clientID + ":" + clientSecret))
 	req.Header.Set("Authorization", "Basic "+auth)
 
@@ -123,14 +127,24 @@ func (c *SpotifyClient) authenticate() error {
 	c.accessToken = tokenResp.AccessToken
 	c.tokenExpiry = time.Now().Add(time.Duration(tokenResp.ExpiresIn) * time.Second)
 
+	logger.Get().Debug().Time("token_expiry", c.tokenExpiry).Msg("Spotify token updated successfully")
+
 	return nil
 }
 
 func (c *SpotifyClient) ensureToken(ctx context.Context) error {
+	c.tokenMutex.Lock()
+	defer c.tokenMutex.Unlock()
+
+	l := logger.FromContext(ctx)
+	l.Debug().Str("access_token", c.accessToken).Time("token_expiry", c.tokenExpiry).Msg("Checking token status")
+
 	if c.accessToken == "" || time.Now().After(c.tokenExpiry.Add(-5*time.Minute)) {
 		// Token is missing or will expire in less than 5 minutes
+		l.Debug().Msg("Token needs refresh, calling authenticate")
 		return c.authenticate()
 	}
+	l.Debug().Msg("Token is valid")
 	return nil
 }
 
