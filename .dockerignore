@@ -1,0 +1,13 @@
+.git
+.github
+docs
+test_assets
+.vscode
+.kilocode
+*.md
+.gitignore
+CHANGELOG.md
+LICENSE
+Makefile
+README.md
+assets/screenshot*.png
