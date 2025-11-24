@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"net/http"
 	"net/url"
 	"strings"
@@ -77,6 +78,9 @@ func (c *SpotifyClient) authenticate() error {
 		return fmt.Errorf("Spotify client ID or secret not configured")
 	}
 
+	// Debug log client ID (without secret for security)
+	logger.Get().Debug().Str("client_id", clientID).Msg("Attempting Spotify authentication")
+
 	// Prepare the request
 	data := url.Values{}
 	data.Set("grant_type", "client_credentials")
@@ -99,7 +103,9 @@ func (c *SpotifyClient) authenticate() error {
 	defer resp.Body.Close()
 
 	if resp.StatusCode != http.StatusOK {
-		return fmt.Errorf("Spotify auth failed with status: %d", resp.StatusCode)
+		// Read response body for error details
+		body, _ := io.ReadAll(resp.Body)
+		return fmt.Errorf("Spotify auth failed with status: %d, body: %s", resp.StatusCode, string(body))
 	}
 
 	// Parse response
