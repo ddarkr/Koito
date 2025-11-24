@@ -81,8 +81,8 @@ func (c *SpotifyClient) authenticate() error {
 		return fmt.Errorf("Spotify client ID or secret not configured")
 	}
 
-	// Debug log client ID (without secret for security)
-	logger.Get().Debug().Str("client_id", clientID).Bool("client_secret_set", clientSecret != "").Msg("Attempting Spotify authentication")
+	// Debug log client ID length (without revealing the actual ID for security)
+	logger.Get().Debug().Int("client_id_length", len(clientID)).Bool("client_secret_set", clientSecret != "").Msg("Attempting Spotify authentication")
 
 	// Prepare the request
 	data := url.Values{}
@@ -99,8 +99,9 @@ func (c *SpotifyClient) authenticate() error {
 	auth := base64.StdEncoding.EncodeToString([]byte(clientID + ":" + clientSecret))
 	req.Header.Set("Authorization", "Basic "+auth)
 
-	// Make the request
-	resp, err := c.httpClient.Do(req)
+	// Make the request using default transport to avoid adding Bearer token
+	client := &http.Client{}
+	resp, err := client.Do(req)
 	if err != nil {
 		return fmt.Errorf("failed to authenticate with Spotify: %w", err)
 	}
@@ -139,8 +140,8 @@ func (c *SpotifyClient) ensureToken(ctx context.Context) error {
 	l := logger.FromContext(ctx)
 	l.Debug().Str("access_token", c.accessToken).Time("token_expiry", c.tokenExpiry).Msg("Checking token status")
 
-	if c.accessToken == "" || time.Now().After(c.tokenExpiry.Add(-5*time.Minute)) {
-		// Token is missing or will expire in less than 5 minutes
+	if c.accessToken == "" || time.Now().After(c.tokenExpiry.Add(-10*time.Minute)) {
+		// Token is missing or will expire in less than 10 minutes
 		l.Debug().Msg("Token needs refresh, calling authenticate")
 		return c.authenticate()
 	}
