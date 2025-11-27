@@ -148,8 +148,8 @@ jobs:
           file: ./Dockerfile
           push: true
           tags: |
-            ghcr.io/doda-dev/koito:dev
-            ghcr.io/doda-dev/koito:dev-${{ github.sha }}
+            ghcr.io/ddarkr/koito:dev
+            ghcr.io/ddarkr/koito:dev-${{ github.sha }}
           build-args: |
             KOITO_VERSION=dev
           # platforms: linux/amd64,linux/arm64
