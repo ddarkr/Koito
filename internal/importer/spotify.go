@@ -45,6 +45,9 @@ func ImportSpotifyFile(ctx context.Context, store db.DB, filename string) error 
 		return fmt.Errorf("ImportSpotifyFile: %w", err)
 	}
 
+	// Track last imported time for each track to avoid duplicates within 5 seconds
+	lastImported := make(map[string]time.Time)
+
 	for _, item := range export {
 		if item.ReasonEnd != "trackdone" {
 			continue
@@ -56,6 +59,13 @@ func ImportSpotifyFile(ctx context.Context, store db.DB, filename string) error 
 		dur := item.MsPlayed
 		if item.TrackName == "" || item.ArtistName == "" {
 			l.Debug().Msg("Skipping non-track item")
+			continue
+		}
+
+		// Check for duplicates within 5 seconds
+		key := item.ArtistName + "|" + item.TrackName + "|" + item.AlbumName
+		if prevTime, exists := lastImported[key]; exists && item.Timestamp.Sub(prevTime) < 5*time.Second {
+			l.Debug().Msgf("Skipping duplicate listen for %s within 5 seconds", key)
 			continue
 		}
 		opts := catalog.SubmitListenOpts{
@@ -74,7 +84,10 @@ func ImportSpotifyFile(ctx context.Context, store db.DB, filename string) error 
 			l.Err(err).Msg("Failed to import spotify playback item")
 			return fmt.Errorf("ImportSpotifyFile: %w", err)
 		}
+		// Update last imported time after successful import
+		lastImported[key] = item.Timestamp
 		throttleFunc()
 	}
 	return finishImport(ctx, filename, len(export))
 }
+
