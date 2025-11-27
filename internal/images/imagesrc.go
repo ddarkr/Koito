@@ -98,7 +98,13 @@ func GetArtistImage(ctx context.Context, opts ArtistImageOpts) (string, error) {
 	if imgsrc.spotifyEnabled {
 		img, err := imgsrc.spotifyC.GetArtistImages(ctx, opts.Aliases)
 		if err != nil {
-			l.Debug().Err(err).Msg("GetArtistImage: Could not find artist image from Spotify")
+			l.Warn().Err(err).Msg("Failed to get artist image from Spotify, retrying")
+			img, err = imgsrc.spotifyC.GetArtistImages(ctx, opts.Aliases)
+			if err != nil {
+				l.Debug().Err(err).Msg("GetArtistImage: Could not find artist image from Spotify after retry")
+			} else if img != "" {
+				return img, nil
+			}
 		} else if img != "" {
 			return img, nil
 		}
@@ -136,7 +142,11 @@ func GetAlbumImage(ctx context.Context, opts AlbumImageOpts) (string, error) {
 		l.Debug().Msg("Attempting to find album image from Spotify")
 		img, err := imgsrc.spotifyC.GetAlbumImages(ctx, opts.Artists, opts.Album)
 		if err != nil {
-			return "", err
+			l.Warn().Err(err).Msg("Failed to get album image from Spotify, retrying")
+			img, err = imgsrc.spotifyC.GetAlbumImages(ctx, opts.Artists, opts.Album)
+			if err != nil {
+				return "", err
+			}
 		}
 		return img, nil
 	}
