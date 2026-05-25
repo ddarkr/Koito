@@ -9,11 +9,16 @@ import (
 )
 
 type StatsResponse struct {
-	ListenCount     int64 `json:"listen_count"`
-	TrackCount      int64 `json:"track_count"`
-	AlbumCount      int64 `json:"album_count"`
-	ArtistCount     int64 `json:"artist_count"`
-	MinutesListened int64 `json:"minutes_listened"`
+	ListenCount     int64   `json:"listen_count"`
+	TrackCount      int64   `json:"track_count"`
+	AlbumCount      int64   `json:"album_count"`
+	ArtistCount     int64   `json:"artist_count"`
+	MinutesListened int64   `json:"minutes_listened"`
+	DaysActive      int     `json:"days_active"`
+	LongestStreak   int     `json:"longest_streak"`
+	AvgDailyPlays   float32 `json:"avg_daily_plays"`
+	TracksPerArtist float32 `json:"tracks_per_artist"`
+	AlbumsPerArtist float32 `json:"albums_per_artist"`
 }
 
 type statsStore interface {
@@ -68,6 +73,20 @@ func StatsHandler(store statsStore) http.HandlerFunc {
 			return
 		}
 
+		activeDays, err := store.GetActiveDays(r.Context(), tf.Timezone)
+		if err != nil {
+			l.Err(err).Msg("StatsHandler: Failed to fetch active days")
+			utils.WriteError(w, "failed to get active days: "+err.Error(), http.StatusInternalServerError)
+			return
+		}
+
+		longestStreak, err := store.GetLongestListenStreak(r.Context(), db.ListenActivityOpts{Timezone: tf.Timezone})
+		if err != nil {
+			l.Err(err).Msg("StatsHandler: Failed to fetch longest streak")
+			utils.WriteError(w, "failed to get longest streak: "+err.Error(), http.StatusInternalServerError)
+			return
+		}
+
 		l.Debug().Msg("StatsHandler: Successfully fetched statistics")
 		utils.WriteJSON(w, http.StatusOK, StatsResponse{
 			ListenCount:     listens,
@@ -75,6 +94,11 @@ func StatsHandler(store statsStore) http.HandlerFunc {
 			AlbumCount:      albums,
 			ArtistCount:     artists,
 			MinutesListened: timeListenedS / 60,
+			DaysActive:      activeDays,
+			AvgDailyPlays:   float32(listens) / float32(activeDays),
+			TracksPerArtist: float32(tracks) / float32(artists),
+			AlbumsPerArtist: float32(albums) / float32(artists),
+			LongestStreak:   longestStreak,
 		})
 	}
 }

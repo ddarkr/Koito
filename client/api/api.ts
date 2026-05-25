@@ -387,6 +387,10 @@ type ListenActivityItem = {
   start_time: Date;
   listens: number;
 };
+type ListenActivityResponse = {
+  activity: ListenActivityItem[];
+  streak: number;
+};
 type InterestBucket = {
   bucket_start: Date;
   bucket_end: Date;
@@ -402,6 +406,11 @@ type Stats = {
   album_count: number;
   artist_count: number;
   minutes_listened: number;
+  days_active: number;
+  avg_daily_plays: number;
+  tracks_per_artist: number;
+  albums_per_artist: number;
+  longest_streak: number;
 };
 type SearchResponse = {
   albums: Album[];
@@ -458,6 +467,7 @@ export type {
   PaginatedResponse,
   Ranked,
   ListenActivityItem,
+  ListenActivityResponse,
   InterestBucket,
   User,
   Alias,

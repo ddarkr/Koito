@@ -78,6 +78,9 @@ type ListenStore interface {
 	CountTimeListened(ctx context.Context, timeframe Timeframe) (int64, error)
 	CountTimeListenedToItem(ctx context.Context, opts TimeListenedOpts) (int64, error)
 	GetFirstListenUnix(ctx context.Context) (int64, error)
+	GetActiveDays(ctx context.Context, tz *time.Location) (int, error)
+	GetListenStreak(ctx context.Context, opts ListenActivityOpts) (int, error)
+	GetLongestListenStreak(ctx context.Context, opts ListenActivityOpts) (int, error)
 }
 
 type UserStore interface {

@@ -1,6 +1,10 @@
 import { useQuery } from "@tanstack/react-query";
 import Popup from "./Popup";
-import { apiFetch, type ListenActivityItem } from "api/api";
+import {
+  apiFetch,
+  type ListenActivityItem,
+  type ListenActivityResponse,
+} from "api/api";
 import CardHeader from "./primitives/CardHeader";
 import useWindowWidth from "~/hooks/useWindowWidth";
 
@@ -24,7 +28,7 @@ const getActivity = (args: {
   artist_id: number;
   album_id: number;
   track_id: number;
-}) => apiFetch<ListenActivityItem[]>("/apis/web/v1/listen-activity", args);
+}) => apiFetch<ListenActivityResponse>("/apis/web/v1/listen-activity", args);
 
 const header = "Activity";
 
@@ -80,7 +84,7 @@ export default function ActivityGrid({
 
   // Build a lookup from normalized date key → listen count
   const listenMap = new Map<string, number>();
-  for (const item of data) {
+  for (const item of data.activity) {
     const d = new Date(item.start_time);
     const key = `${d.getFullYear()}-${d.getMonth()}-${d.getDate()}`;
     listenMap.set(key, item.listens);
@@ -190,10 +194,10 @@ export default function ActivityGrid({
           </div>
         </div>
         <div className="flex justify-around w-full">
-          {/* TODO: Uncomment when streak is added to API */}
-          {/*<div className="text-[11px] color-fg-secondary">
-            Streak · <span className="text-(--color-primary)">234</span>
-          </div>*/}
+          <div className="text-[11px] color-fg-secondary">
+            Streak ·{" "}
+            <span className="text-(--color-primary)">{data.streak}</span>
+          </div>
           <div className="flex items-center gap-2 text-[11px] color-fg-secondary">
             <div>Less</div>
             <div className="grid grid-cols-5 gap-1">

@@ -108,8 +108,21 @@ func GetListenActivityHandler(store db.ListenStore) func(w http.ResponseWriter, 
 
 		activity = processActivity(activity, opts)
 
+		streak, err := store.GetListenStreak(ctx, opts)
+		if err != nil {
+			l.Err(err).Msg("GetListenActivityHandler: Failed to retrieve listen streak")
+			utils.WriteError(w, "failed to retrieve listen streak", http.StatusInternalServerError)
+			return
+		}
+
 		l.Debug().Msg("GetListenActivityHandler: Successfully retrieved listen activity")
-		utils.WriteJSON(w, http.StatusOK, activity)
+		utils.WriteJSON(w, http.StatusOK, struct {
+			Activity []db.ListenActivityItem `json:"activity"`
+			Streak   int                     `json:"streak"`
+		}{
+			activity,
+			streak,
+		})
 	}
 }
 
