@@ -174,15 +174,14 @@ func FetchMissingAlbumImages(ctx context.Context, store db.AlbumStore) error {
 // TODO: move this function into models
 func BuildImageList(imageid *uuid.UUID) models.ImageList {
 	if imageid == nil || *imageid == uuid.Nil {
-		return models.ImageList{}
-	} else {
-		return models.ImageList{
-			XS:     fmt.Sprintf("/image/%s/%s.webp", imageid.String(), imagecache.ImageSizeXS),
-			Small:  fmt.Sprintf("/image/%s/%s.webp", imageid.String(), imagecache.ImageSizeSmall),
-			Medium: fmt.Sprintf("/image/%s/%s.webp", imageid.String(), imagecache.ImageSizeMedium),
-			Large:  fmt.Sprintf("/image/%s/%s.webp", imageid.String(), imagecache.ImageSizeLarge),
-			XL:     fmt.Sprintf("/image/%s/%s.webp", imageid.String(), imagecache.ImageSizeXL),
-		}
+		imageid = &uuid.Nil
+	}
+	return models.ImageList{
+		XS:     fmt.Sprintf("/image/%s/%s.webp", imageid.String(), imagecache.ImageSizeXS),
+		Small:  fmt.Sprintf("/image/%s/%s.webp", imageid.String(), imagecache.ImageSizeSmall),
+		Medium: fmt.Sprintf("/image/%s/%s.webp", imageid.String(), imagecache.ImageSizeMedium),
+		Large:  fmt.Sprintf("/image/%s/%s.webp", imageid.String(), imagecache.ImageSizeLarge),
+		XL:     fmt.Sprintf("/image/%s/%s.webp", imageid.String(), imagecache.ImageSizeXL),
 	}
 }
 
