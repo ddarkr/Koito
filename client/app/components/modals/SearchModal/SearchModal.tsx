@@ -48,7 +48,7 @@ export default function SearchModal({ open, setOpen }: Props) {
       } else if (e.key === "Tab") {
         if (modalRef.current) {
           const focusableEls = modalRef.current.querySelectorAll<HTMLElement>(
-            'button:not(:disabled), [href], input:not(:disabled), select:not(:disabled), textarea:not(:disabled), [tabindex]:not([tabindex="-1"])'
+            'button:not(:disabled), [href], input:not(:disabled), select:not(:disabled), textarea:not(:disabled), [tabindex]:not([tabindex="-1"])',
           );
           const firstEl = focusableEls[0];
           const lastEl = focusableEls[focusableEls.length - 1];
@@ -86,13 +86,13 @@ export default function SearchModal({ open, setOpen }: Props) {
 
   return ReactDOM.createPortal(
     <div
-      className={`fixed inset-0 z-50 flex flex-col items-center justify-start bg-black/90 transition-opacity duration-100 ${
+      className={`fixed inset-0 z-50 flex flex-col items-center justify-start bg-black/90 transition-opacity duration-100 px-4 py-12 ${
         isClosing ? "animate-fade-out" : "animate-fade-in"
       }`}
     >
       <div
         ref={modalRef}
-        className="flex flex-col w-full overflow-y-auto max-h-screen py-16 px-7"
+        className="flex flex-col w-full overflow-y-auto max-h-screen"
         style={{ maxWidth: 600 }}
       >
         <SubHeader isOffset>Search</SubHeader>
@@ -112,6 +112,6 @@ export default function SearchModal({ open, setOpen }: Props) {
         <SearchResults data={data} onSelect={closeSearchModal} />
       </div>
     </div>,
-    document.body
+    document.body,
   );
 }
