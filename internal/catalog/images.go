@@ -25,11 +25,12 @@ func PruneOrphanedImages(ctx context.Context, store db.ImageStore) error {
 	memo := make(map[uuid.UUID]bool)
 
 	imagecache.ForEachCachedImageID(func(imageID uuid.UUID) {
+		var err error
 		exists, seen := memo[imageID]
 		if !seen {
-			exists, err := store.ImageHasAssociation(ctx, imageID)
+			exists, err = store.ImageHasAssociation(ctx, imageID)
 			if err != nil {
-				l.Err(err).Msgf("Failed to query image association for image with ID %s", imageID.String())
+				l.Err(err).Msgf("PruneOrphanedImages: Failed to query image association for image with ID %s", imageID.String())
 			}
 			memo[imageID] = exists
 		}
@@ -37,13 +38,14 @@ func PruneOrphanedImages(ctx context.Context, store db.ImageStore) error {
 		if !exists {
 			err := imagecache.DeleteImage(imageID)
 			if err != nil {
-				l.Err(err).Msgf("Failed to delete image with ID %s", imageID.String())
+				l.Err(err).Msgf("PruneOrphanedImages: Failed to delete image with ID %s", imageID.String())
 			}
+			l.Debug().Msgf("PruneOrphanedImages: Purged image with ID '%s'", imageID.String())
 			count++
 		}
 	})
 
-	l.Info().Msgf("Purged %d images", count)
+	l.Info().Msgf("PruneOrphanedImages: Purged %d images", count)
 	return nil
 }
 
