@@ -272,9 +272,12 @@ function getAlbum(id: number): Promise<Album> {
 function deleteListen(listen: Listen): Promise<Response> {
   const ms = new Date(listen.time).getTime();
   const unix = Math.floor(ms / 1000);
-  return fetch(`/apis/web/v1/listen?track_id=${listen.track.id}&unix=${unix}`, {
-    method: "DELETE",
-  });
+  return fetch(
+    `/apis/web/v1/listens?track_id=${listen.track.id}&unix=${unix}`,
+    {
+      method: "DELETE",
+    },
+  );
 }
 function getExport() {}
 
