@@ -17,7 +17,7 @@ import (
 	"github.com/gabehf/koito/internal/logger"
 	"github.com/gabehf/koito/internal/utils"
 	"github.com/gabehf/koito/queue"
-	"github.com/gabehf/koito/romanizer"
+	"github.com/gosimple/unidecode"
 	"github.com/zmb3/spotify/v2"
 )
 
@@ -153,7 +153,6 @@ func (c *SpotifyClient) Shutdown() {
 	c.requestQueue.Shutdown()
 }
 
-
 func (c *SpotifyClient) searchEntity(ctx context.Context, query string, searchType spotify.SearchType) (*spotify.SearchResult, error) {
 	l := logger.FromContext(ctx)
 	l.Debug().Msgf("Searching Spotify for: %s", query)
@@ -179,7 +178,7 @@ func (c *SpotifyClient) GetArtistImages(ctx context.Context, aliases []string) (
 
 	// First try romanized names with exact quotes
 	for _, a := range aliasesUniq {
-		romanized := romanizer.Romanize(a)
+		romanized := unidecode.Unidecode(a)
 		if romanized != "" {
 			results, err := c.searchEntity(ctx, fmt.Sprintf("artist:\"%s\"", romanized), spotify.SearchTypeArtist)
 			if err != nil {
@@ -274,8 +273,8 @@ func (c *SpotifyClient) GetAlbumImages(ctx context.Context, artists []string, al
 
 	// Try to find artist + album match for all artists with more query combinations
 	for _, artist := range artistsUniq {
-		romanizedArtist := romanizer.Romanize(artist)
-		romanizedAlbum := romanizer.Romanize(album)
+		romanizedArtist := unidecode.Unidecode(artist)
+		romanizedAlbum := unidecode.Unidecode(album)
 
 		queries := []string{}
 
@@ -332,7 +331,7 @@ func (c *SpotifyClient) GetAlbumImages(ctx context.Context, artists []string, al
 		queries := []string{
 			fmt.Sprintf("(%s) album:\"%s\"", combinedArtistQuery, album),
 		}
-		romanizedAlbum := romanizer.Romanize(album)
+		romanizedAlbum := unidecode.Unidecode(album)
 		if romanizedAlbum != "" {
 			queries = append(queries, fmt.Sprintf("(%s) album:\"%s\"", combinedArtistQuery, romanizedAlbum))
 		}
@@ -358,7 +357,7 @@ func (c *SpotifyClient) GetAlbumImages(ctx context.Context, artists []string, al
 
 	// If none found, try album title only with more variations
 	queries := []string{}
-	romanizedAlbum := romanizer.Romanize(album)
+	romanizedAlbum := unidecode.Unidecode(album)
 	if romanizedAlbum != "" {
 		queries = append(queries, fmt.Sprintf("album:\"%s\"", romanizedAlbum))
 		queries = append(queries, fmt.Sprintf("album:%s", romanizedAlbum))

@@ -9,9 +9,16 @@ type Track struct {
 	MbzID        *uuid.UUID     `json:"musicbrainz_id"`
 	ListenCount  int64          `json:"listen_count"`
 	Duration     int32          `json:"duration"`
-	Image        *uuid.UUID     `json:"image"`
+	Image        ImageList      `json:"image"`
 	AlbumID      int32          `json:"album_id"`
 	TimeListened int64          `json:"time_listened"`
 	FirstListen  int64          `json:"first_listen"`
 	AllTimeRank  int64          `json:"all_time_rank"`
+}
+
+type SimpleTrack struct {
+	ID      int32          `json:"id"`
+	Title   string         `json:"title"`
+	Artists []SimpleArtist `json:"artists"`
+	Image   ImageList      `json:"image"`
 }

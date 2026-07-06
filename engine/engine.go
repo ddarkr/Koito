@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"log"
 	"net/http"
 	"os"
 	"os/signal"
@@ -18,7 +19,7 @@ import (
 	"github.com/gabehf/koito/internal/catalog"
 	"github.com/gabehf/koito/internal/cfg"
 	"github.com/gabehf/koito/internal/db"
-	"github.com/gabehf/koito/internal/db/psql"
+	"github.com/gabehf/koito/internal/db/sqlite"
 	"github.com/gabehf/koito/internal/images"
 	"github.com/gabehf/koito/internal/importer"
 	"github.com/gabehf/koito/internal/logger"
@@ -30,19 +31,12 @@ import (
 	"github.com/rs/zerolog"
 )
 
-func Run(
-	getenv func(string) string,
-	w io.Writer,
-	version string,
-) error {
-	err := cfg.Load(getenv, version)
-	if err != nil {
-		panic("Engine: Failed to load configuration")
+func initLogger(getenv func(string) string, version string, w io.Writer) (*zerolog.Logger, context.Context, error) {
+	if err := cfg.Load(getenv, version); err != nil {
+		return nil, nil, fmt.Errorf("failed to load configuration: %w", err)
 	}
 
 	l := logger.Get()
-
-	l.Debug().Msg("Engine: Starting application initialization")
 
 	if cfg.StructuredLogging() {
 		l.Debug().Msg("Engine: Enabling structured logging")
@@ -52,15 +46,41 @@ func Run(
 		*l = l.Output(zerolog.ConsoleWriter{
 			Out:        w,
 			TimeFormat: time.RFC3339,
-			FormatMessage: func(i interface{}) string {
+			FormatMessage: func(i any) string {
 				return fmt.Sprintf("\u001b[30;1m>\u001b[0m %s |", i)
 			},
 		})
 	}
 
 	ctx := logger.NewContext(l)
-
 	l.Info().Msgf("Koito %s", version)
+	return l, ctx, nil
+}
+
+func connectDB(l *zerolog.Logger) db.DB {
+	l.Debug().Msg("Engine: Initializing database connection")
+	l.Info().Msg("Engine: Using SQLite database driver")
+	s, err := sqlite.New()
+	for err != nil {
+		l.Error().Err(err).Msg("Engine: Failed to connect to database; retrying in 5 seconds")
+		time.Sleep(5 * time.Second)
+		s, err = sqlite.New()
+	}
+	l.Info().Msg("Engine: Database connection established")
+	return s
+}
+
+func Run(
+	getenv func(string) string,
+	w io.Writer,
+	version string,
+) error {
+	l, ctx, err := initLogger(getenv, version, w)
+	if err != nil {
+		log.Fatalf("Engine: %v", err)
+	}
+
+	l.Debug().Msg("Engine: Starting application initialization")
 
 	l.Debug().Msgf("Engine: Checking config directory: %s", cfg.ConfigDir())
 	_, err = os.Stat(cfg.ConfigDir())
@@ -72,6 +92,13 @@ func Run(
 			return err
 		}
 	}
+	f, err := os.CreateTemp(cfg.ConfigDir(), ".koito_perm_check_*")
+	if err != nil {
+		l.Fatal().Err(err).Msg("Engine: Config directory is not writable")
+		return err
+	}
+	f.Close()
+	os.Remove(f.Name())
 	l.Info().Msgf("Engine: Using config directory: %s", cfg.ConfigDir())
 
 	l.Debug().Msgf("Engine: Checking import directory: %s", path.Join(cfg.ConfigDir(), "import"))
@@ -85,16 +112,44 @@ func Run(
 		}
 	}
 
-	l.Debug().Msg("Engine: Initializing database connection")
-	var store *psql.Psql
-	store, err = psql.New()
-	for err != nil {
-		l.Error().Err(err).Msg("Engine: Failed to connect to database; retrying in 5 seconds")
-		time.Sleep(5 * time.Second)
-		store, err = psql.New()
+	if cfg.SqliteEnabled() {
+		l.Info().Msg("Engine: The environment variable " + cfg.SQLITE_ENABLED + " is no longer needed and can be removed.")
 	}
+
+	store := connectDB(l)
 	defer store.Close(ctx)
-	l.Info().Msg("Engine: Database connection established")
+
+	l.Debug().Msg("Engine: Checking for default user")
+	userCount, _ := store.CountUsers(ctx)
+	if userCount < 1 {
+		l.Info().Msg("Engine: Creating default user")
+		user, err := store.SaveUser(ctx, db.SaveUserOpts{
+			Username: cfg.DefaultUsername(),
+			Password: cfg.DefaultPassword(),
+			Role:     models.UserRoleAdmin,
+		})
+		if err != nil {
+			l.Fatal().Err(err).Msg("Engine: Failed to save default user in database")
+		}
+		apikey, err := utils.GenerateRandomString(48)
+		if err != nil {
+			l.Fatal().Err(err).Msg("Engine: Failed to generate default API key")
+		}
+		label := "Default"
+		_, err = store.SaveApiKey(ctx, db.SaveApiKeyOpts{
+			Key:    apikey,
+			UserID: user.ID,
+			Label:  label,
+		})
+		if err != nil {
+			l.Fatal().Err(err).Msg("Engine: Failed to save default API key in database")
+		}
+		l.Info().Msgf("Engine: Default user created. Login: %s : %s", cfg.DefaultUsername(), cfg.DefaultPassword())
+	}
+
+	if cfg.ForceTZ() != nil {
+		l.Debug().Msgf("Engine: Forcing the use of timezone '%s'", cfg.ForceTZ().String())
+	}
 
 	l.Debug().Msg("Engine: Initializing MusicBrainz client")
 	var mbzC mbz.MusicBrainzCaller
@@ -143,43 +198,6 @@ func Run(
 	})
 	l.Info().Msg("Engine: Image sources initialized")
 
-	l.Debug().Msg("Engine: Checking for default user")
-	userCount, _ := store.CountUsers(ctx)
-	if userCount < 1 {
-		l.Info().Msg("Engine: Creating default user")
-		user, err := store.SaveUser(ctx, db.SaveUserOpts{
-			Username: cfg.DefaultUsername(),
-			Password: cfg.DefaultPassword(),
-			Role:     models.UserRoleAdmin,
-		})
-		if err != nil {
-			l.Fatal().Err(err).Msg("Engine: Failed to save default user in database")
-		}
-		apikey, err := utils.GenerateRandomString(48)
-		if err != nil {
-			l.Fatal().Err(err).Msg("Engine: Failed to generate default API key")
-		}
-		label := "Default"
-		_, err = store.SaveApiKey(ctx, db.SaveApiKeyOpts{
-			Key:    apikey,
-			UserID: user.ID,
-			Label:  label,
-		})
-		if err != nil {
-			l.Fatal().Err(err).Msg("Engine: Failed to save default API key in database")
-		}
-		l.Info().Msgf("Engine: Default user created. Login: %s : %s", cfg.DefaultUsername(), cfg.DefaultPassword())
-	}
-
-	l.Debug().Msg("Engine: Checking allowed hosts configuration")
-	if cfg.AllowAllHosts() {
-		l.Warn().Msg("Engine: Configuration allows requests from all hosts. This is a potential security risk!")
-	} else if len(cfg.AllowedHosts()) == 0 || cfg.AllowedHosts()[0] == "" {
-		l.Warn().Msgf("Engine: No hosts allowed! Did you forget to set the %s variable?", cfg.ALLOWED_HOSTS_ENV)
-	} else {
-		l.Info().Msgf("Engine: Allowing hosts: %v", cfg.AllowedHosts())
-	}
-
 	if len(cfg.AllowedOrigins()) == 0 || cfg.AllowedOrigins()[0] == "" {
 		l.Info().Msgf("Engine: Using default CORS policy")
 	} else {
@@ -191,13 +209,17 @@ func Run(
 	}
 
 	l.Debug().Msg("Engine: Setting up HTTP server")
+
+	if len(cfg.AllowedHosts()) != 1 || cfg.AllowedHosts()[0] != "" {
+		l.Info().Msg("Engine: The environment variable " + cfg.ALLOWED_HOSTS_ENV + " is no longer used and can be removed.")
+	}
+
 	var ready atomic.Bool
 	mux := chi.NewRouter()
 	mux.Use(middleware.WithRequestID)
 	mux.Use(middleware.Logger(l))
 	mux.Use(chimiddleware.Recoverer)
 	mux.Use(chimiddleware.RealIP)
-	mux.Use(middleware.AllowedHosts)
 	bindRoutes(mux, &ready, store, mbzC)
 
 	httpServer := &http.Server{
@@ -224,6 +246,8 @@ func Run(
 
 	l.Info().Msg("Engine: Pruning orphaned images")
 	go catalog.PruneOrphanedImages(logger.NewContext(l), store)
+	l.Info().Msg("Engine: Checking image cache migration status")
+	go catalog.MigrateImageCache(logger.NewContext(l), store)
 	l.Info().Msg("Engine: Running duration backfill task")
 	go catalog.BackfillTrackDurationsFromMusicBrainz(ctx, store, mbzC)
 	l.Info().Msg("Engine: Attempting to fetch missing artist images")
@@ -271,13 +295,13 @@ func RunImporter(l *zerolog.Logger, store db.DB, mbzc mbz.MusicBrainzCaller) {
 		}
 		if strings.Contains(file.Name(), "Streaming_History_Audio") {
 			l.Info().Msgf("Importer: Import file %s detecting as being Spotify export", file.Name())
-			err := importer.ImportSpotifyFile(logger.NewContext(l), store, file.Name())
+			err := importer.ImportSpotifyFile(logger.NewContext(l), store, mbzc, file.Name())
 			if err != nil {
 				l.Err(err).Msgf("Importer: Failed to import file: %s", file.Name())
 			}
 		} else if strings.Contains(file.Name(), "maloja") {
 			l.Info().Msgf("Importer: Import file %s detecting as being Maloja export", file.Name())
-			err := importer.ImportMalojaFile(logger.NewContext(l), store, file.Name())
+			err := importer.ImportMalojaFile(logger.NewContext(l), store, mbzc, file.Name())
 			if err != nil {
 				l.Err(err).Msgf("Importer: Failed to import file: %s", file.Name())
 			}

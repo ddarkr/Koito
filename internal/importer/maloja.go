@@ -11,7 +11,6 @@ import (
 
 	"github.com/gabehf/koito/internal/catalog"
 	"github.com/gabehf/koito/internal/cfg"
-	"github.com/gabehf/koito/internal/db"
 	"github.com/gabehf/koito/internal/logger"
 	"github.com/gabehf/koito/internal/mbz"
 	"github.com/gabehf/koito/internal/utils"
@@ -32,7 +31,7 @@ type MalojaTrack struct {
 	} `json:"album"`
 }
 
-func ImportMalojaFile(ctx context.Context, store db.DB, filename string) error {
+func ImportMalojaFile(ctx context.Context, store importStore, mbzc mbz.MusicBrainzCaller, filename string) error {
 	l := logger.FromContext(ctx)
 	l.Info().Msgf("Beginning maloja import on file: %s", filename)
 	file, err := os.Open(path.Join(cfg.ConfigDir(), "import", filename))
@@ -72,7 +71,7 @@ func ImportMalojaFile(ctx context.Context, store db.DB, filename string) error {
 			continue
 		}
 		opts := catalog.SubmitListenOpts{
-			MbzCaller:      &mbz.MusicBrainzClient{},
+			MbzCaller:      mbzc,
 			Artist:         item.Track.Artists[0],
 			ArtistNames:    artists,
 			TrackTitle:     item.Track.Title,

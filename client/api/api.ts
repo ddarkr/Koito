@@ -37,71 +37,38 @@ async function handleJson<T>(r: Response): Promise<T> {
   }
   return (await r.json()) as T;
 }
-async function getLastListens(
-  args: getItemsArgs
-): Promise<PaginatedResponse<Listen>> {
-  const r = await fetch(
-    `/apis/web/v1/listens?period=${args.period}&limit=${args.limit}&artist_id=${args.artist_id}&album_id=${args.album_id}&track_id=${args.track_id}&page=${args.page}`
-  );
-  return handleJson<PaginatedResponse<Listen>>(r);
-}
 
-async function getTopTracks(
-  args: getItemsArgs
-): Promise<PaginatedResponse<Ranked<Track>>> {
-  let url = `/apis/web/v1/top-tracks?period=${args.period}&limit=${args.limit}&page=${args.page}`;
-
-  if (args.artist_id) url += `&artist_id=${args.artist_id}`;
-  else if (args.album_id) url += `&album_id=${args.album_id}`;
-
+export async function apiFetch<T>(
+  path: string,
+  params?: Record<string, string | number | undefined>,
+): Promise<T> {
+  let url = path;
+  if (params) {
+    const searchParams = new URLSearchParams();
+    for (const [key, val] of Object.entries(params)) {
+      if (val !== undefined) searchParams.set(key, String(val));
+    }
+    const qs = searchParams.toString();
+    if (qs) url += "?" + qs;
+  }
   const r = await fetch(url);
-  return handleJson<PaginatedResponse<Ranked<Track>>>(r);
+  return handleJson<T>(r);
 }
 
 async function getTopAlbums(
-  args: getItemsArgs
+  args: getItemsArgs,
 ): Promise<PaginatedResponse<Ranked<Album>>> {
-  let url = `/apis/web/v1/top-albums?period=${args.period}&limit=${args.limit}&page=${args.page}`;
+  let url = `/apis/web/v1/top/albums?period=${args.period}&limit=${args.limit}&page=${args.page}`;
   if (args.artist_id) url += `&artist_id=${args.artist_id}`;
 
   const r = await fetch(url);
   return handleJson<PaginatedResponse<Ranked<Album>>>(r);
 }
 
-async function getTopArtists(
-  args: getItemsArgs
-): Promise<PaginatedResponse<Ranked<Artist>>> {
-  const url = `/apis/web/v1/top-artists?period=${args.period}&limit=${args.limit}&page=${args.page}`;
-  const r = await fetch(url);
-  return handleJson<PaginatedResponse<Ranked<Artist>>>(r);
-}
-
-async function getActivity(
-  args: getActivityArgs
-): Promise<ListenActivityItem[]> {
-  const r = await fetch(
-    `/apis/web/v1/listen-activity?step=${args.step}&range=${args.range}&month=${args.month}&year=${args.year}&album_id=${args.album_id}&artist_id=${args.artist_id}&track_id=${args.track_id}`
-  );
-  return handleJson<ListenActivityItem[]>(r);
-}
-
-async function getInterest(args: getInterestArgs): Promise<InterestBucket[]> {
-  const r = await fetch(
-    `/apis/web/v1/interest?buckets=${args.buckets}&album_id=${args.album_id}&artist_id=${args.artist_id}&track_id=${args.track_id}`
-  );
-  return handleJson<InterestBucket[]>(r);
-}
-
-async function getStats(period: string): Promise<Stats> {
-  const r = await fetch(`/apis/web/v1/stats?period=${period}`);
-
-  return handleJson<Stats>(r);
-}
-
 function search(q: string): Promise<SearchResponse> {
   q = encodeURIComponent(q);
   return fetch(`/apis/web/v1/search?q=${q}`).then(
-    (r) => r.json() as Promise<SearchResponse>
+    (r) => r.json() as Promise<SearchResponse>,
   );
 }
 
@@ -109,56 +76,60 @@ function imageUrl(id: string, size: string) {
   if (!id) {
     id = "default";
   }
-  return `/images/${size}/${id}`;
+  return `/image/${size}/${id}`;
 }
-function replaceImage(form: FormData): Promise<Response> {
-  return fetch(`/apis/web/v1/replace-image`, {
-    method: "POST",
+function replaceImage(
+  type: string,
+  id: string,
+  form: FormData,
+): Promise<Response> {
+  return fetch(`/apis/web/v1/${type}/${id}/image`, {
+    method: "PATCH",
     body: form,
   });
 }
 
 function mergeTracks(from: number, to: number): Promise<Response> {
-  return fetch(`/apis/web/v1/merge/tracks?from_id=${from}&to_id=${to}`, {
+  return fetch(`/apis/web/v1/track/${to}/merge`, {
     method: "POST",
+    body: JSON.stringify({ merge_from_id: from }),
   });
 }
 function mergeAlbums(
   from: number,
   to: number,
-  replaceImage: boolean
+  replaceImage: boolean,
 ): Promise<Response> {
-  return fetch(
-    `/apis/web/v1/merge/albums?from_id=${from}&to_id=${to}&replace_image=${replaceImage}`,
-    {
-      method: "POST",
-    }
-  );
+  return fetch(`/apis/web/v1/album/${to}/merge`, {
+    method: "POST",
+    body: JSON.stringify({ merge_from_id: from, replace_image: replaceImage }),
+  });
 }
 function mergeArtists(
   from: number,
   to: number,
-  replaceImage: boolean
+  replaceImage: boolean,
 ): Promise<Response> {
-  return fetch(
-    `/apis/web/v1/merge/artists?from_id=${from}&to_id=${to}&replace_image=${replaceImage}`,
-    {
-      method: "POST",
-    }
-  );
+  return fetch(`/apis/web/v1/artist/${to}/merge`, {
+    method: "POST",
+    body: JSON.stringify({ merge_from_id: from, replace_image: replaceImage }),
+  });
 }
 function login(
   username: string,
   password: string,
-  remember: boolean
+  remember: boolean,
 ): Promise<Response> {
-  const form = new URLSearchParams();
-  form.append("username", username);
-  form.append("password", password);
-  form.append("remember_me", String(remember));
   return fetch(`/apis/web/v1/login`, {
     method: "POST",
-    body: form,
+    body: JSON.stringify({
+      username: username,
+      password: password,
+      remember_me: remember,
+    }),
+    headers: {
+      "Content-Type": "application/json",
+    },
   });
 }
 function logout(): Promise<Response> {
@@ -172,28 +143,33 @@ function getCfg(): Promise<Config> {
 }
 
 function submitListen(id: string, ts: Date): Promise<Response> {
-  const form = new URLSearchParams();
-  form.append("track_id", id);
   const ms = new Date(ts).getTime();
   const unix = Math.floor(ms / 1000);
-  form.append("unix", unix.toString());
-  return fetch(`/apis/web/v1/listen`, {
+  return fetch(`/apis/web/v1/listens`, {
     method: "POST",
-    body: form,
+    body: JSON.stringify({
+      track_id: Number(id),
+      unix: unix,
+      client: "Koito Web UI",
+    }),
+    headers: {
+      "Content-Type": "application/json",
+    },
   });
 }
 
 function getApiKeys(): Promise<ApiKey[]> {
   return fetch(`/apis/web/v1/user/apikeys`).then(
-    (r) => r.json() as Promise<ApiKey[]>
+    (r) => r.json() as Promise<ApiKey[]>,
   );
 }
 const createApiKey = async (label: string): Promise<ApiKey> => {
-  const form = new URLSearchParams();
-  form.append("label", label);
   const r = await fetch(`/apis/web/v1/user/apikeys`, {
     method: "POST",
-    body: form,
+    body: JSON.stringify({ label: label }),
+    headers: {
+      "Content-Type": "application/json",
+    },
   });
   if (!r.ok) {
     let errorMessage = `error: ${r.status}`;
@@ -211,22 +187,22 @@ const createApiKey = async (label: string): Promise<ApiKey> => {
   return data;
 };
 function deleteApiKey(id: number): Promise<Response> {
-  return fetch(`/apis/web/v1/user/apikeys?id=${id}`, {
+  return fetch(`/apis/web/v1/user/apikeys/${id}`, {
     method: "DELETE",
   });
 }
 function updateApiKeyLabel(id: number, label: string): Promise<Response> {
-  const form = new URLSearchParams();
-  form.append("id", String(id));
-  form.append("label", label);
-  return fetch(`/apis/web/v1/user/apikeys`, {
+  return fetch(`/apis/web/v1/user/apikeys/${id}`, {
     method: "PATCH",
-    body: form,
+    body: JSON.stringify({ label: label }),
+    headers: {
+      "Content-Type": "application/json",
+    },
   });
 }
 
 function deleteItem(itemType: string, id: number): Promise<Response> {
-  return fetch(`/apis/web/v1/${itemType}?id=${id}`, {
+  return fetch(`/apis/web/v1/${itemType}/${id}`, {
     method: "DELETE",
   });
 }
@@ -236,100 +212,84 @@ function updateUser(username: string, password: string) {
   form.append("password", password);
   return fetch(`/apis/web/v1/user`, {
     method: "PATCH",
-    body: form,
+    body: JSON.stringify({ username: username, password: password }),
+    headers: {
+      "Content-Type": "application/json",
+    },
   });
 }
 function getAliases(type: string, id: number): Promise<Alias[]> {
-  return fetch(`/apis/web/v1/aliases?${type}_id=${id}`).then(
-    (r) => r.json() as Promise<Alias[]>
+  return fetch(`/apis/web/v1/${type}/${id}/aliases`).then(
+    (r) => r.json() as Promise<Alias[]>,
   );
 }
 function createAlias(
   type: string,
   id: number,
-  alias: string
+  alias: string,
 ): Promise<Response> {
-  const form = new URLSearchParams();
-  form.append(`${type}_id`, String(id));
-  form.append("alias", alias);
-  return fetch(`/apis/web/v1/aliases`, {
+  return fetch(`/apis/web/v1/${type}/${id}/aliases`, {
     method: "POST",
-    body: form,
+    body: JSON.stringify({ alias: alias }),
   });
 }
 function deleteAlias(
   type: string,
   id: number,
-  alias: string
+  alias: string,
 ): Promise<Response> {
-  const form = new URLSearchParams();
-  form.append(`${type}_id`, String(id));
-  form.append("alias", alias);
-  return fetch(`/apis/web/v1/aliases/delete`, {
-    method: "POST",
-    body: form,
+  return fetch(`/apis/web/v1/${type}/${id}/aliases`, {
+    method: "DELETE",
+    body: JSON.stringify({ alias: alias }),
   });
 }
 function setPrimaryAlias(
   type: string,
   id: number,
-  alias: string
+  alias: string,
 ): Promise<Response> {
-  const form = new URLSearchParams();
-  form.append(`${type}_id`, String(id));
-  form.append("alias", alias);
-  return fetch(`/apis/web/v1/aliases/primary`, {
-    method: "POST",
-    body: form,
+  return fetch(`/apis/web/v1/${type}/${id}/aliases/primary`, {
+    method: "PATCH",
+    body: JSON.stringify({ alias: alias }),
   });
 }
 function updateMbzId(
   type: string,
   id: number,
-  mbzid: string
+  mbzid: string,
 ): Promise<Response> {
-  const form = new URLSearchParams();
-  form.append(`${type}_id`, String(id));
-  form.append("mbz_id", mbzid);
-  return fetch(`/apis/web/v1/mbzid`, {
+  return fetch(`/apis/web/v1/${type}/${id}`, {
     method: "PATCH",
-    body: form,
+    body: JSON.stringify({ mbid: mbzid }),
   });
 }
 function getAlbum(id: number): Promise<Album> {
-  return fetch(`/apis/web/v1/album?id=${id}`).then(
-    (r) => r.json() as Promise<Album>
+  return fetch(`/apis/web/v1/album/${id}`).then(
+    (r) => r.json() as Promise<Album>,
   );
 }
 
 function deleteListen(listen: Listen): Promise<Response> {
   const ms = new Date(listen.time).getTime();
   const unix = Math.floor(ms / 1000);
-  return fetch(`/apis/web/v1/listen?track_id=${listen.track.id}&unix=${unix}`, {
-    method: "DELETE",
-  });
+  return fetch(
+    `/apis/web/v1/listens?track_id=${listen.track.id}&unix=${unix}`,
+    {
+      method: "DELETE",
+    },
+  );
 }
 function getExport() {}
 
-function getNowPlaying(): Promise<NowPlaying> {
-  return fetch("/apis/web/v1/now-playing").then((r) => r.json());
-}
-
 async function getRewindStats(args: timeframe): Promise<RewindStats> {
   const r = await fetch(
-    `/apis/web/v1/summary?week=${args.week}&month=${args.month}&year=${args.year}&from=${args.from}&to=${args.to}`
+    `/apis/web/v1/summary?week=${args.week}&month=${args.month}&year=${args.year}&from=${args.from}&to=${args.to}`,
   );
   return handleJson<RewindStats>(r);
 }
 
 export {
-  getLastListens,
-  getTopTracks,
   getTopAlbums,
-  getTopArtists,
-  getActivity,
-  getInterest,
-  getStats,
   search,
   replaceImage,
   mergeTracks,
@@ -354,25 +314,37 @@ export {
   getAlbum,
   getExport,
   submitListen,
-  getNowPlaying,
   getRewindStats,
+};
+type ImageList = {
+  xs: string;
+  small: string;
+  medium: string;
+  large: string;
+  xl: string;
 };
 type Track = {
   id: number;
   title: string;
   artists: SimpleArtists[];
   listen_count: number;
-  image: string;
+  image: ImageList;
   album_id: number;
   musicbrainz_id: string;
   time_listened: number;
   first_listen: number;
   all_time_rank: number;
 };
+type SimpleTrack = {
+  id: number;
+  title: string;
+  artists: SimpleArtists[];
+  image: ImageList;
+};
 type Artist = {
   id: number;
   name: string;
-  image: string;
+  image: ImageList;
   aliases: string[];
   listen_count: number;
   musicbrainz_id: string;
@@ -384,7 +356,7 @@ type Artist = {
 type Album = {
   id: number;
   title: string;
-  image: string;
+  image: ImageList;
   listen_count: number;
   is_various_artists: boolean;
   artists: SimpleArtists[];
@@ -401,7 +373,7 @@ type Alias = {
 };
 type Listen = {
   time: string;
-  track: Track;
+  track: SimpleTrack;
 };
 type PaginatedResponse<T> = {
   items: T[];
@@ -418,6 +390,10 @@ type ListenActivityItem = {
   start_time: Date;
   listens: number;
 };
+type ListenActivityResponse = {
+  activity: ListenActivityItem[];
+  streak: number;
+};
 type InterestBucket = {
   bucket_start: Date;
   bucket_end: Date;
@@ -433,6 +409,11 @@ type Stats = {
   album_count: number;
   artist_count: number;
   minutes_listened: number;
+  days_active: number;
+  avg_daily_plays: number;
+  tracks_per_artist: number;
+  albums_per_artist: number;
+  longest_streak: number;
 };
 type SearchResponse = {
   albums: Album[];
@@ -489,6 +470,7 @@ export type {
   PaginatedResponse,
   Ranked,
   ListenActivityItem,
+  ListenActivityResponse,
   InterestBucket,
   User,
   Alias,
@@ -498,4 +480,5 @@ export type {
   NowPlaying,
   Stats,
   RewindStats,
+  ImageList,
 };

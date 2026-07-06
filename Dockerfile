@@ -1,17 +1,20 @@
-FROM node AS frontend
+FROM --platform=$BUILDPLATFORM node AS frontend
 
 ARG KOITO_VERSION
 ENV VITE_KOITO_VERSION=$KOITO_VERSION
 ENV BUILD_TARGET=docker
 
 WORKDIR /client
-COPY ./client/package.json ./client/yarn.lock ./
-RUN --mount=type=cache,target=/root/.yarn yarn install --network-timeout 1000000
+RUN npm install -g corepack
+RUN corepack enable && corepack prepare yarn@4 --activate
 COPY ./client .
+RUN yarn install
 
 RUN yarn run build
 
-FROM golang:1.24 AS backend
+RUN find ./build/client -type f \( -name "*.js" -o -name "*.css" -o -name "*.html" -o -name "*.svg" \) -exec gzip -k -9 {} \;
+
+FROM golang:1.25 AS backend
 
 ARG KOITO_VERSION
 ENV CGO_ENABLED=1
@@ -36,7 +39,7 @@ FROM debian:bookworm-slim AS final
 WORKDIR /app
 
 RUN apt-get update && \
-	apt-get install -y libvips42 && \
+	apt-get install -y libvips42  && \
 	rm -rf /var/lib/apt/lists/*
 
 COPY --from=backend /app/app ./app

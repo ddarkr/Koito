@@ -54,7 +54,7 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
   let defaultTheme = useAppContext().defaultTheme;
   let initialTheme = localStorage.getItem("theme") ?? defaultTheme;
   const [themeName, setThemeName] = useState(
-    themes[initialTheme] ? initialTheme : defaultTheme
+    themes[initialTheme] ? initialTheme : defaultTheme,
   );
   const [currentTheme, setCurrentTheme] = useState<Theme>(() => {
     if (initialTheme === "custom") {
@@ -108,6 +108,7 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
     const root = document.documentElement;
 
     root.setAttribute("data-theme", themeName);
+    localStorage.setItem("bgcolor", themes[themeName].bg);
 
     if (themeName === "custom") {
       applyCustomThemeVars(currentTheme);

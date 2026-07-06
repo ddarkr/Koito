@@ -1,7 +1,6 @@
 package cfg
 
 import (
-	"errors"
 	"fmt"
 	"regexp"
 	"strconv"
@@ -19,6 +18,7 @@ const (
 const (
 	// BASE_URL_ENV                  = "KOITO_BASE_URL"
 	DATABASE_URL_ENV               = "KOITO_DATABASE_URL"
+	SQLITE_ENABLED                 = "KOITO_SQLITE_ENABLED"
 	BIND_ADDR_ENV                  = "KOITO_BIND_ADDR"
 	LISTEN_PORT_ENV                = "KOITO_LISTEN_PORT"
 	ENABLE_STRUCTURED_LOGGING_ENV  = "KOITO_ENABLE_STRUCTURED_LOGGING"
@@ -52,6 +52,7 @@ const (
 	FETCH_IMAGES_DURING_IMPORT_ENV = "KOITO_FETCH_IMAGES_DURING_IMPORT"
 	ARTIST_SEPARATORS_ENV          = "KOITO_ARTIST_SEPARATORS_REGEX"
 	LOGIN_GATE_ENV                 = "KOITO_LOGIN_GATE"
+	FORCE_TZ                       = "KOITO_FORCE_TZ"
 )
 
 type config struct {
@@ -59,12 +60,12 @@ type config struct {
 	listenPort int
 	configDir  string
 	// baseUrl              string
+	sqliteEnabled          bool
 	databaseUrl            string
 	musicBrainzUrl         string
 	musicBrainzRateLimit   int
 	logLevel               int
 	structuredLogging      bool
-	enableFullImageCache   bool
 	lbzRelayEnabled        bool
 	lbzRelayUrl            string
 	lbzRelayToken          string
@@ -93,6 +94,7 @@ type config struct {
 	importAfter            time.Time
 	artistSeparators       []*regexp.Regexp
 	loginGate              bool
+	forceTZ                *time.Location
 }
 
 var (
@@ -117,10 +119,16 @@ func Load(getenv func(string) string, version string) error {
 func loadConfig(getenv func(string) string, version string) (*config, error) {
 	cfg := new(config)
 
+	cfg.sqliteEnabled = strings.ToLower(getenv(SQLITE_ENABLED)) == "true"
+
 	cfg.databaseUrl = getenv(DATABASE_URL_ENV)
-	if cfg.databaseUrl == "" {
-		return nil, errors.New("loadConfig: required parameter " + DATABASE_URL_ENV + " not provided")
+
+	if cfg.databaseUrl != "" {
+		return nil, fmt.Errorf(`loadConfig: %s must not be set! If you are still using PostgreSQL on any version v0.1.X, `+
+			`you **must** upgrade to v0.2.1 before any future upgrades so that your data can be migrated to SQLite. `+
+			`View the release notes for v0.2.1 for more information.`, DATABASE_URL_ENV)
 	}
+
 	cfg.bindAddr = getenv(BIND_ADDR_ENV)
 	var err error
 	cfg.listenPort, err = strconv.Atoi(getenv(LISTEN_PORT_ENV))
@@ -163,7 +171,6 @@ func loadConfig(getenv func(string) string, version string) (*config, error) {
 	cfg.structuredLogging = parseBool(getenv(ENABLE_STRUCTURED_LOGGING_ENV))
 	cfg.fetchImageDuringImport = parseBool(getenv(FETCH_IMAGES_DURING_IMPORT_ENV))
 
-	cfg.enableFullImageCache = parseBool(getenv(ENABLE_FULL_IMAGE_CACHE_ENV))
 	cfg.disableDeezer = parseBool(getenv(DISABLE_DEEZER_ENV))
 	cfg.disableCAA = parseBool(getenv(DISABLE_COVER_ART_ARCHIVE_ENV))
 	cfg.disableSpotify = parseBool(getenv(DISABLE_SPOTIFY_ENV))
@@ -222,6 +229,13 @@ func loadConfig(getenv func(string) string, version string) (*config, error) {
 		cfg.loginGate = true
 	}
 
+	if getenv(FORCE_TZ) != "" {
+		cfg.forceTZ, err = time.LoadLocation(getenv(FORCE_TZ))
+		if err != nil {
+			return nil, fmt.Errorf("forced timezone '%s' is not a valid timezone", getenv(FORCE_TZ))
+		}
+	}
+
 	switch strings.ToLower(getenv(LOG_LEVEL_ENV)) {
 	case "debug":
 		cfg.logLevel = 0
@@ -243,217 +257,4 @@ func parseBool(s string) bool {
 	} else {
 		return false
 	}
-}
-
-// Global accessors for configuration values
-
-func UserAgent() string {
-	lock.RLock()
-	defer lock.RUnlock()
-	return globalConfig.userAgent
-}
-
-func ListenAddr() string {
-	lock.RLock()
-	defer lock.RUnlock()
-	return fmt.Sprintf("%s:%d", globalConfig.bindAddr, globalConfig.listenPort)
-}
-
-func ConfigDir() string {
-	lock.RLock()
-	defer lock.RUnlock()
-	return globalConfig.configDir
-}
-
-func DatabaseUrl() string {
-	lock.RLock()
-	defer lock.RUnlock()
-	return globalConfig.databaseUrl
-}
-
-func MusicBrainzUrl() string {
-	lock.RLock()
-	defer lock.RUnlock()
-	return globalConfig.musicBrainzUrl
-}
-
-func MusicBrainzRateLimit() int {
-	lock.RLock()
-	defer lock.RUnlock()
-	return globalConfig.musicBrainzRateLimit
-}
-
-func LogLevel() int {
-	lock.RLock()
-	defer lock.RUnlock()
-	return globalConfig.logLevel
-}
-
-func StructuredLogging() bool {
-	lock.RLock()
-	defer lock.RUnlock()
-	return globalConfig.structuredLogging
-}
-
-func LbzRelayEnabled() bool {
-	lock.RLock()
-	defer lock.RUnlock()
-	return globalConfig.lbzRelayEnabled
-}
-
-func LbzRelayUrl() string {
-	lock.RLock()
-	defer lock.RUnlock()
-	return globalConfig.lbzRelayUrl
-}
-
-func LbzRelayToken() string {
-	lock.RLock()
-	defer lock.RUnlock()
-	return globalConfig.lbzRelayToken
-}
-
-func DefaultPassword() string {
-	lock.RLock()
-	defer lock.RUnlock()
-	return globalConfig.defaultPw
-}
-
-func DefaultUsername() string {
-	lock.RLock()
-	defer lock.RUnlock()
-	return globalConfig.defaultUsername
-}
-
-func DefaultTheme() string {
-	lock.RLock()
-	defer lock.RUnlock()
-	return globalConfig.defaultTheme
-}
-
-func FullImageCacheEnabled() bool {
-	lock.RLock()
-	defer lock.RUnlock()
-	return globalConfig.enableFullImageCache
-}
-
-func DeezerDisabled() bool {
-	lock.RLock()
-	defer lock.RUnlock()
-	return globalConfig.disableDeezer
-}
-
-func CoverArtArchiveDisabled() bool {
-	lock.RLock()
-	defer lock.RUnlock()
-	return globalConfig.disableCAA
-}
-
-func SpotifyDisabled() bool {
-	lock.RLock()
-	defer lock.RUnlock()
-	return globalConfig.disableSpotify
-}
-
-func SpotifyClientId() string {
-	lock.RLock()
-	defer lock.RUnlock()
-	return globalConfig.spotifyClientId
-}
-
-func SpotifyClientSecret() string {
-	lock.RLock()
-	defer lock.RUnlock()
-	return globalConfig.spotifyClientSecret
-}
-
-func MusicBrainzDisabled() bool {
-	lock.RLock()
-	defer lock.RUnlock()
-	return globalConfig.disableMusicBrainz
-}
-
-func SubsonicEnabled() bool {
-	lock.RLock()
-	defer lock.RUnlock()
-	return globalConfig.subsonicEnabled
-}
-
-func SubsonicUrl() string {
-	lock.RLock()
-	defer lock.RUnlock()
-	return globalConfig.subsonicUrl
-}
-
-func SubsonicParams() string {
-	lock.RLock()
-	defer lock.RUnlock()
-	return globalConfig.subsonicParams
-}
-
-func LastFMApiKey() string {
-	lock.RLock()
-	defer lock.RUnlock()
-	return globalConfig.lastfmApiKey
-}
-
-func SkipImport() bool {
-	lock.RLock()
-	defer lock.RUnlock()
-	return globalConfig.skipImport
-}
-
-func AllowedHosts() []string {
-	lock.RLock()
-	defer lock.RUnlock()
-	return globalConfig.allowedHosts
-}
-
-func AllowAllHosts() bool {
-	lock.RLock()
-	defer lock.RUnlock()
-	return globalConfig.allowAllHosts
-}
-
-func AllowedOrigins() []string {
-	lock.RLock()
-	defer lock.RUnlock()
-	return globalConfig.allowedOrigins
-}
-
-func RateLimitDisabled() bool {
-	lock.RLock()
-	defer lock.RUnlock()
-	return globalConfig.disableRateLimit
-}
-
-func ThrottleImportMs() int {
-	lock.RLock()
-	defer lock.RUnlock()
-	return globalConfig.importThrottleMs
-}
-
-// returns the before, after times, in that order
-func ImportWindow() (time.Time, time.Time) {
-	lock.RLock()
-	defer lock.RUnlock()
-	return globalConfig.importBefore, globalConfig.importAfter
-}
-
-func FetchImagesDuringImport() bool {
-	lock.RLock()
-	defer lock.RUnlock()
-	return globalConfig.fetchImageDuringImport
-}
-
-func ArtistSeparators() []*regexp.Regexp {
-	lock.RLock()
-	defer lock.RUnlock()
-	return globalConfig.artistSeparators
-}
-
-func LoginGate() bool {
-	lock.RLock()
-	defer lock.RUnlock()
-	return globalConfig.loginGate
 }

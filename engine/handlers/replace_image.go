@@ -1,18 +1,19 @@
 package handlers
 
 import (
+	"fmt"
 	"io"
 	"net/http"
-	"strconv"
 	"strings"
 
+	"github.com/gabehf/koito/imagecache"
 	"github.com/gabehf/koito/internal/catalog"
-	"github.com/gabehf/koito/internal/cfg"
 	"github.com/gabehf/koito/internal/db"
 	"github.com/gabehf/koito/internal/images"
 	"github.com/gabehf/koito/internal/logger"
 	"github.com/gabehf/koito/internal/utils"
 	"github.com/google/uuid"
+	"github.com/rs/zerolog"
 )
 
 type ReplaceImageResponse struct {
@@ -21,179 +22,161 @@ type ReplaceImageResponse struct {
 	Message string `json:"message,omitempty"`
 }
 
-func ReplaceImageHandler(store db.DB) http.HandlerFunc {
+// ReplaceArtistImageHandler replaces the image for a given artist.
+func ReplaceArtistImageHandler(store db.ArtistStore) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		ctx := r.Context()
 		l := logger.FromContext(ctx)
 
-		l.Debug().Msg("ReplaceImageHandler: Received request to replace image")
-
-		artistIdStr := r.FormValue("artist_id")
-		artistId, _ := strconv.Atoi(artistIdStr)
-		albumIdStr := r.FormValue("album_id")
-		albumId, _ := strconv.Atoi(albumIdStr)
-
-		if artistId != 0 && albumId != 0 {
-			l.Debug().Msg("ReplaceImageHandler: Both artist_id and album_id are set, rejecting request")
-			utils.WriteError(w, "Only one of artist_id and album_id can be set", http.StatusBadRequest)
-			return
-		} else if artistId == 0 && albumId == 0 {
-			l.Debug().Msg("ReplaceImageHandler: Neither artist_id nor album_id are set, rejecting request")
-			utils.WriteError(w, "One of artist_id and album_id must be set", http.StatusBadRequest)
+		artistID, err := utils.ParseIDParam(r, "id")
+		if err != nil {
+			l.Debug().AnErr("error", err).Msg("ReplaceArtistImageHandler: Invalid artist id")
+			utils.WriteError(w, "invalid artist id", http.StatusBadRequest)
 			return
 		}
 
-		var oldImage *uuid.UUID
-		if artistId != 0 {
-			l.Debug().Msgf("ReplaceImageHandler: Fetching artist with ID %d", artistId)
-			a, err := store.GetArtist(ctx, db.GetArtistOpts{
-				ID: int32(artistId),
-			})
-			if err != nil {
-				l.Err(err).Msg("ReplaceImageHandler: Artist with specified ID could not be found")
-				utils.WriteError(w, "Artist with specified id could not be found", http.StatusBadRequest)
-				return
-			}
-			oldImage = a.Image
-		} else if albumId != 0 {
-			l.Debug().Msgf("ReplaceImageHandler: Fetching album with ID %d", albumId)
-			a, err := store.GetAlbum(ctx, db.GetAlbumOpts{
-				ID: int32(albumId),
-			})
-			if err != nil {
-				l.Err(err).Msg("ReplaceImageHandler: Album with specified ID could not be found")
-				utils.WriteError(w, "Album with specified id could not be found", http.StatusBadRequest)
-				return
-			}
-			oldImage = a.Image
+		artist, err := store.GetArtist(ctx, db.GetArtistOpts{ID: artistID})
+		if err != nil {
+			l.Err(err).Msg("ReplaceArtistImageHandler: Artist with specified ID could not be found")
+			utils.WriteError(w, "artist with specified id could not be found", http.StatusBadRequest)
+			return
 		}
 
-		l.Debug().Msg("ReplaceImageHandler: Getting image from request")
+		id, imgsrc, err := resolveImage(r, l)
+		if err != nil {
+			utils.WriteError(w, err.Error(), http.StatusBadRequest)
+			return
+		}
 
-		var id uuid.UUID
-		var err error
+		if err = store.UpdateArtist(ctx, db.UpdateArtistOpts{
+			ID:       artistID,
+			Image:    id,
+			ImageSrc: imgsrc,
+		}); err != nil {
+			l.Err(err).Msg("ReplaceArtistImageHandler: Artist image could not be updated")
+			utils.WriteError(w, "artist image could not be updated", http.StatusInternalServerError)
+			return
+		}
 
-		fileUrl := r.FormValue("image_url")
-		if fileUrl != "" {
-			l.Debug().Msg("ReplaceImageHandler: Image identified as remote file")
-			err = images.ValidateImageURL(fileUrl)
-			if err != nil {
-				l.Debug().AnErr("error", err).Msg("ReplaceImageHandler: Invalid image URL")
-				utils.WriteError(w, "url is invalid or not an image file", http.StatusBadRequest)
-				return
-			}
-			id = uuid.New()
-			var dlSize catalog.ImageSize
-			if cfg.FullImageCacheEnabled() {
-				dlSize = catalog.ImageSizeFull
-			} else {
-				dlSize = catalog.ImageSizeLarge
-			}
-			l.Debug().Msg("ReplaceImageHandler: Downloading album image from source")
-			err = catalog.DownloadAndCacheImage(ctx, id, fileUrl, dlSize)
-			if err != nil {
-				l.Err(err).Msg("ReplaceImageHandler: Failed to cache image")
-				utils.WriteError(w, "Failed to cache image", http.StatusInternalServerError)
-				return
-			}
-		} else {
-			l.Debug().Msg("ReplaceImageHandler: Image identified as uploaded file")
-			file, _, err := r.FormFile("image")
-			if err != nil {
-				l.Err(err).Msg("ReplaceImageHandler: Invalid file upload")
-				utils.WriteError(w, "Invalid file", http.StatusBadRequest)
-				return
-			}
-			defer file.Close()
-
-			buf := make([]byte, 512)
-			if _, err := file.Read(buf); err != nil {
-				l.Err(err).Msg("ReplaceImageHandler: Could not read file")
-				utils.WriteError(w, "Could not read file", http.StatusInternalServerError)
-				return
-			}
-
-			contentType := http.DetectContentType(buf)
-			if !strings.HasPrefix(contentType, "image/") {
-				l.Debug().Msg("ReplaceImageHandler: Uploaded file is not an image")
-				utils.WriteError(w, "Only image uploads are allowed", http.StatusBadRequest)
-				return
-			}
-
-			if _, err := file.Seek(0, io.SeekStart); err != nil {
-				l.Err(err).Msg("ReplaceImageHandler: Could not seek file")
-				utils.WriteError(w, "Could not seek file", http.StatusInternalServerError)
-				return
-			}
-
-			l.Debug().Msg("ReplaceImageHandler: Saving image to cache")
-
-			id = uuid.New()
-
-			var dlSize catalog.ImageSize
-			if cfg.FullImageCacheEnabled() {
-				dlSize = catalog.ImageSizeFull
-			} else {
-				dlSize = catalog.ImageSizeLarge
-			}
-
-			err = catalog.CompressAndSaveImage(ctx, id.String(), dlSize, file)
-			if err != nil {
-				l.Err(err).Msg("ReplaceImageHandler: Could not save file")
-				utils.WriteError(w, "Could not save file", http.StatusInternalServerError)
+		if artist.Image.Small != "" {
+			if err = imagecache.DeleteImage(*parseOldImage(artist.Image.Small)); err != nil {
+				l.Err(err).Msg("ReplaceArtistImageHandler: Failed to delete old image file")
+				utils.WriteError(w, "could not delete old image file", http.StatusInternalServerError)
 				return
 			}
 		}
 
-		l.Debug().Msg("ReplaceImageHandler: Updating database")
+		utils.WriteJSON(w, http.StatusOK, ReplaceImageResponse{Success: true, Image: id.String()})
+	}
+}
 
-		var imgsrc string
-		if fileUrl != "" {
-			imgsrc = fileUrl
-		} else {
-			imgsrc = catalog.ImageSourceUserUpload
+// ReplaceAlbumImageHandler replaces the image for a given album.
+func ReplaceAlbumImageHandler(store db.AlbumStore) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		ctx := r.Context()
+		l := logger.FromContext(ctx)
+
+		albumID, err := utils.ParseIDParam(r, "id")
+		if err != nil {
+			l.Debug().AnErr("error", err).Msg("ReplaceAlbumImageHandler: Invalid album id")
+			utils.WriteError(w, "invalid album id", http.StatusBadRequest)
+			return
 		}
 
-		if artistId != 0 {
-			l.Debug().Msgf("ReplaceImageHandler: Updating artist with ID %d", artistId)
-			err := store.UpdateArtist(ctx, db.UpdateArtistOpts{
-				ID:       int32(artistId),
-				Image:    id,
-				ImageSrc: imgsrc,
-			})
-			if err != nil {
-				l.Err(err).Msg("ReplaceImageHandler: Artist image could not be updated")
-				utils.WriteError(w, "Artist image could not be updated", http.StatusInternalServerError)
-				return
-			}
-		} else if albumId != 0 {
-			l.Debug().Msgf("ReplaceImageHandler: Updating album with ID %d", albumId)
-			err := store.UpdateAlbum(ctx, db.UpdateAlbumOpts{
-				ID:       int32(albumId),
-				Image:    id,
-				ImageSrc: imgsrc,
-			})
-			if err != nil {
-				l.Err(err).Msg("ReplaceImageHandler: Album image could not be updated")
-				utils.WriteError(w, "Album image could not be updated", http.StatusInternalServerError)
+		album, err := store.GetAlbum(ctx, db.GetAlbumOpts{ID: albumID})
+		if err != nil {
+			l.Err(err).Msg("ReplaceAlbumImageHandler: Album with specified ID could not be found")
+			utils.WriteError(w, "album with specified id could not be found", http.StatusBadRequest)
+			return
+		}
+
+		id, imgsrc, err := resolveImage(r, l)
+		if err != nil {
+			utils.WriteError(w, err.Error(), http.StatusBadRequest)
+			return
+		}
+
+		if err = store.UpdateAlbum(ctx, db.UpdateAlbumOpts{
+			ID:       albumID,
+			Image:    id,
+			ImageSrc: imgsrc,
+		}); err != nil {
+			l.Err(err).Msg("ReplaceAlbumImageHandler: Album image could not be updated")
+			utils.WriteError(w, "album image could not be updated", http.StatusInternalServerError)
+			return
+		}
+
+		if album.Image.Small != "" {
+			if err = imagecache.DeleteImage(*parseOldImage(album.Image.Small)); err != nil {
+				l.Err(err).Msg("ReplaceAlbumImageHandler: Failed to delete old image file")
+				utils.WriteError(w, "could not delete old image file", http.StatusInternalServerError)
 				return
 			}
 		}
 
-		if oldImage != nil {
-			l.Debug().Msg("ReplaceImageHandler: Cleaning up old image file")
-			err = catalog.DeleteImage(*oldImage)
-			if err != nil {
-				l.Err(err).Msg("ReplaceImageHandler: Failed to delete old image file")
-				utils.WriteError(w, "Could not delete old image file", http.StatusInternalServerError)
-				return
-			}
-		}
+		utils.WriteJSON(w, http.StatusOK, ReplaceImageResponse{Success: true, Image: id.String()})
+	}
+}
 
-		l.Debug().Msg("ReplaceImageHandler: Successfully replaced image")
-		utils.WriteJSON(w, http.StatusOK, ReplaceImageResponse{
-			Success: true,
-			Image:   id.String(),
-		})
+// resolveImage extracts and caches an image from either a URL or file upload in the request.
+// Returns the new image UUID and source string.
+func resolveImage(r *http.Request, l *zerolog.Logger) (uuid.UUID, string, error) {
+	id := uuid.New()
+
+	fileUrl := r.FormValue("image_url")
+	if fileUrl != "" {
+		l.Debug().Msg("resolveImage: Image identified as remote file")
+		if err := images.ValidateImageURL(fileUrl); err != nil {
+			l.Debug().AnErr("error", err).Msg("resolveImage: Invalid image URL")
+			return uuid.UUID{}, "", fmt.Errorf("url is invalid or not an image file")
+		}
+		l.Debug().Msg("resolveImage: Downloading image from source")
+		if err := imagecache.DownloadImage(id, fileUrl); err != nil {
+			l.Err(err).Msg("resolveImage: Failed to cache image")
+			return uuid.UUID{}, "", fmt.Errorf("failed to cache image")
+		}
+		return id, fileUrl, nil
+	}
+
+	l.Debug().Msg("resolveImage: Image identified as uploaded file")
+	file, _, err := r.FormFile("image")
+	if err != nil {
+		l.Err(err).Msg("resolveImage: Invalid file upload")
+		return uuid.UUID{}, "", fmt.Errorf("invalid file")
+	}
+	defer file.Close()
+
+	buf := make([]byte, 512)
+	if _, err := file.Read(buf); err != nil {
+		l.Err(err).Msg("resolveImage: Could not read file")
+		return uuid.UUID{}, "", fmt.Errorf("could not read file")
+	}
+	if !strings.HasPrefix(http.DetectContentType(buf), "image/") {
+		l.Debug().Msg("resolveImage: Uploaded file is not an image")
+		return uuid.UUID{}, "", fmt.Errorf("only image uploads are allowed")
+	}
+	if _, err := file.Seek(0, io.SeekStart); err != nil {
+		l.Err(err).Msg("resolveImage: Could not seek file")
+		return uuid.UUID{}, "", fmt.Errorf("could not seek file")
+	}
+
+	l.Debug().Msg("resolveImage: Saving image to cache")
+	if err := imagecache.SaveImage(id, file); err != nil {
+		l.Err(err).Msg("resolveImage: Could not save file")
+		return uuid.UUID{}, "", fmt.Errorf("could not save file")
+	}
+	return id, catalog.ImageSourceUserUpload, nil
+}
+
+// parses the image id from /image/{uuid}/size.webp style links
+func parseOldImage(link string) *uuid.UUID {
+	ss := strings.Split(link, "/")
+	if len(ss) < 4 {
+		return nil
+	}
+	if parsed, err := uuid.Parse(ss[2]); err != nil {
+		return nil
+	} else {
+		return &parsed
 	}
 }

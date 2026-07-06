@@ -7,6 +7,7 @@ import (
 	"slices"
 	"strings"
 
+	"github.com/gabehf/koito/imagecache"
 	"github.com/gabehf/koito/internal/cfg"
 	"github.com/gabehf/koito/internal/db"
 	"github.com/gabehf/koito/internal/images"
@@ -14,7 +15,6 @@ import (
 	"github.com/gabehf/koito/internal/mbz"
 	"github.com/gabehf/koito/internal/models"
 	"github.com/google/uuid"
-	"github.com/jackc/pgx/v5"
 )
 
 type AssociateArtistsOpts struct {
@@ -28,7 +28,7 @@ type AssociateArtistsOpts struct {
 	SkipCacheImage bool
 }
 
-func AssociateArtists(ctx context.Context, d db.DB, opts AssociateArtistsOpts) ([]*models.Artist, error) {
+func AssociateArtists(ctx context.Context, d db.ArtistStore, opts AssociateArtistsOpts) ([]*models.Artist, error) {
 	l := logger.FromContext(ctx)
 
 	var result []*models.Artist
@@ -74,7 +74,7 @@ func AssociateArtists(ctx context.Context, d db.DB, opts AssociateArtistsOpts) (
 	return result, nil
 }
 
-func matchArtistsByMBIDMappings(ctx context.Context, d db.DB, opts AssociateArtistsOpts) ([]*models.Artist, error) {
+func matchArtistsByMBIDMappings(ctx context.Context, d db.ArtistStore, opts AssociateArtistsOpts) ([]*models.Artist, error) {
 	l := logger.FromContext(ctx)
 	var result []*models.Artist
 
@@ -87,7 +87,7 @@ func matchArtistsByMBIDMappings(ctx context.Context, d db.DB, opts AssociateArti
 			result = append(result, artist)
 			continue
 		}
-		if !errors.Is(err, pgx.ErrNoRows) {
+		if !errors.Is(err, db.ErrNotFound) {
 			return nil, fmt.Errorf("matchArtistsByMBIDMappings: %w", err)
 		}
 
@@ -118,7 +118,7 @@ func matchArtistsByMBIDMappings(ctx context.Context, d db.DB, opts AssociateArti
 			result = append(result, artist)
 			continue
 		}
-		if !errors.Is(err, pgx.ErrNoRows) {
+		if !errors.Is(err, db.ErrNotFound) {
 			return nil, fmt.Errorf("matchArtistsByMBIDMappings: %w", err)
 		}
 
@@ -133,14 +133,8 @@ func matchArtistsByMBIDMappings(ctx context.Context, d db.DB, opts AssociateArti
 			if imgErr == nil && imgUrl != "" {
 				imgid = uuid.New()
 				if !opts.SkipCacheImage {
-					var size ImageSize
-					if cfg.FullImageCacheEnabled() {
-						size = ImageSizeFull
-					} else {
-						size = ImageSizeLarge
-					}
 					l.Debug().Msg("Downloading artist image from source...")
-					err = DownloadAndCacheImage(ctx, imgid, imgUrl, size)
+					err = imagecache.DownloadImage(imgid, imgUrl)
 					if err != nil {
 						l.Err(err).Msg("Failed to cache image")
 					}
@@ -167,7 +161,7 @@ func matchArtistsByMBIDMappings(ctx context.Context, d db.DB, opts AssociateArti
 	return result, nil
 }
 
-func matchArtistsByMBID(ctx context.Context, d db.DB, opts AssociateArtistsOpts, existing []*models.Artist) ([]*models.Artist, error) {
+func matchArtistsByMBID(ctx context.Context, d db.ArtistStore, opts AssociateArtistsOpts, existing []*models.Artist) ([]*models.Artist, error) {
 	l := logger.FromContext(ctx)
 	var result []*models.Artist
 
@@ -188,7 +182,7 @@ func matchArtistsByMBID(ctx context.Context, d db.DB, opts AssociateArtistsOpts,
 			result = append(result, a)
 			continue
 		}
-		if !errors.Is(err, pgx.ErrNoRows) {
+		if !errors.Is(err, db.ErrNotFound) {
 			return nil, err
 		}
 
@@ -208,7 +202,7 @@ func matchArtistsByMBID(ctx context.Context, d db.DB, opts AssociateArtistsOpts,
 	return result, nil
 }
 
-func resolveAliasOrCreateArtist(ctx context.Context, mbzID uuid.UUID, names []string, d db.DB, opts AssociateArtistsOpts) (*models.Artist, error) {
+func resolveAliasOrCreateArtist(ctx context.Context, mbzID uuid.UUID, names []string, d db.ArtistStore, opts AssociateArtistsOpts) (*models.Artist, error) {
 	l := logger.FromContext(ctx)
 
 	aliases, err := opts.Mbzc.GetArtistPrimaryAliases(ctx, mbzID)
@@ -252,14 +246,8 @@ func resolveAliasOrCreateArtist(ctx context.Context, mbzID uuid.UUID, names []st
 	if err == nil && imgUrl != "" {
 		imgid = uuid.New()
 		if !opts.SkipCacheImage {
-			var size ImageSize
-			if cfg.FullImageCacheEnabled() {
-				size = ImageSizeFull
-			} else {
-				size = ImageSizeLarge
-			}
 			l.Debug().Msg("Downloading artist image from source...")
-			err = DownloadAndCacheImage(ctx, imgid, imgUrl, size)
+			err = imagecache.DownloadImage(imgid, imgUrl)
 			if err != nil {
 				l.Err(err).Msg("Failed to cache image")
 			}
@@ -282,7 +270,7 @@ func resolveAliasOrCreateArtist(ctx context.Context, mbzID uuid.UUID, names []st
 	return u, nil
 }
 
-func matchArtistsByNames(ctx context.Context, names []string, existing []*models.Artist, d db.DB, opts AssociateArtistsOpts) ([]*models.Artist, error) {
+func matchArtistsByNames(ctx context.Context, names []string, existing []*models.Artist, d db.ArtistStore, opts AssociateArtistsOpts) ([]*models.Artist, error) {
 	l := logger.FromContext(ctx)
 	var result []*models.Artist
 
@@ -299,7 +287,7 @@ func matchArtistsByNames(ctx context.Context, names []string, existing []*models
 			result = append(result, a)
 			continue
 		}
-		if errors.Is(err, pgx.ErrNoRows) {
+		if errors.Is(err, db.ErrNotFound) {
 			var imgid uuid.UUID
 			imgUrl, err := images.GetArtistImage(ctx, images.ArtistImageOpts{
 				Aliases: []string{name},
@@ -307,14 +295,8 @@ func matchArtistsByNames(ctx context.Context, names []string, existing []*models
 			if err == nil && imgUrl != "" {
 				imgid = uuid.New()
 				if !opts.SkipCacheImage {
-					var size ImageSize
-					if cfg.FullImageCacheEnabled() {
-						size = ImageSizeFull
-					} else {
-						size = ImageSizeLarge
-					}
 					l.Debug().Msg("Downloading artist image from source...")
-					err = DownloadAndCacheImage(ctx, imgid, imgUrl, size)
+					err = imagecache.DownloadImage(imgid, imgUrl)
 					if err != nil {
 						l.Err(err).Msg("Failed to cache image")
 					}

@@ -1,6 +1,7 @@
 import { useQuery } from "@tanstack/react-query";
 import { getAlbum } from "api/api";
 import { useEffect, useState } from "react";
+import SubHeader from "~/components/primitives/SubHeader";
 
 interface Props {
   id: number;
@@ -12,16 +13,8 @@ export default function SetVariousArtists({ id }: Props) {
   const [success, setSuccess] = useState("");
 
   const { isPending, isError, data, error } = useQuery({
-    queryKey: [
-      "get-album",
-      {
-        id: id,
-      },
-    ],
-    queryFn: ({ queryKey }) => {
-      const params = queryKey[1] as { id: number };
-      return getAlbum(params.id);
-    },
+    queryKey: ["get-album", id],
+    queryFn: () => getAlbum(id),
   });
 
   useEffect(() => {
@@ -40,8 +33,12 @@ export default function SetVariousArtists({ id }: Props) {
   const updateVA = (val: boolean) => {
     setErr("");
     setSuccess("");
-    fetch(`/apis/web/v1/album?id=${id}&is_various_artists=${val}`, {
+    fetch(`/apis/web/v1/album/${id}`, {
       method: "PATCH",
+      body: JSON.stringify({ is_various_artists: val }),
+      headers: {
+        "Content-Type": "application/json",
+      },
     }).then((r) => {
       if (r.ok) {
         setSuccess("Successfully updated album");
@@ -53,7 +50,7 @@ export default function SetVariousArtists({ id }: Props) {
 
   return (
     <div className="w-full">
-      <h3>Mark as Various Artists</h3>
+      <SubHeader>Mark as Various Artists</SubHeader>
       <div className="flex flex-col gap-4">
         <select
           name="mark-various-artists"

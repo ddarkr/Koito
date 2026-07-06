@@ -2,175 +2,130 @@ package handlers
 
 import (
 	"net/http"
-	"strconv"
-	"strings"
 
 	"github.com/gabehf/koito/internal/db"
 	"github.com/gabehf/koito/internal/logger"
 	"github.com/gabehf/koito/internal/utils"
 )
 
-func MergeTracksHandler(store db.DB) http.HandlerFunc {
-	return func(w http.ResponseWriter, r *http.Request) {
-		l := logger.FromContext(r.Context())
-
-		l.Debug().Msg("MergeTracksHandler: Received request to merge tracks")
-
-		fromidStr := r.URL.Query().Get("from_id")
-		fromId, err := strconv.Atoi(fromidStr)
-		if err != nil {
-			l.Debug().AnErr("error", err).Msg("MergeTracksHandler: Invalid from_id parameter")
-			utils.WriteError(w, "from_id is invalid", http.StatusBadRequest)
-			return
-		}
-
-		toidStr := r.URL.Query().Get("to_id")
-		toId, err := strconv.Atoi(toidStr)
-		if err != nil {
-			l.Debug().AnErr("error", err).Msg("MergeTracksHandler: Invalid to_id parameter")
-			utils.WriteError(w, "to_id is invalid", http.StatusBadRequest)
-			return
-		}
-
-		l.Debug().Msgf("MergeTracksHandler: Merging tracks from ID %d to ID %d", fromId, toId)
-
-		err = store.MergeTracks(r.Context(), int32(fromId), int32(toId))
-		if err != nil {
-			l.Err(err).Msg("MergeTracksHandler: Failed to merge tracks")
-			utils.WriteError(w, "Failed to merge tracks: "+err.Error(), http.StatusInternalServerError)
-			return
-		}
-
-		l.Debug().Msgf("MergeTracksHandler: Successfully merged tracks from ID %d to ID %d", fromId, toId)
-		w.WriteHeader(http.StatusNoContent)
-	}
-}
-
-func MergeReleaseGroupsHandler(store db.DB) http.HandlerFunc {
-	return func(w http.ResponseWriter, r *http.Request) {
-		l := logger.FromContext(r.Context())
-
-		l.Debug().Msg("MergeReleaseGroupsHandler: Received request to merge release groups")
-
-		fromidStr := r.URL.Query().Get("from_id")
-		fromId, err := strconv.Atoi(fromidStr)
-		if err != nil {
-			l.Debug().AnErr("error", err).Msg("MergeReleaseGroupsHandler: Invalid from_id parameter")
-			utils.WriteError(w, "from_id is invalid", http.StatusBadRequest)
-			return
-		}
-
-		toidStr := r.URL.Query().Get("to_id")
-		toId, err := strconv.Atoi(toidStr)
-		if err != nil {
-			l.Debug().AnErr("error", err).Msg("MergeReleaseGroupsHandler: Invalid to_id parameter")
-			utils.WriteError(w, "to_id is invalid", http.StatusBadRequest)
-			return
-		}
-
-		var replaceImage bool
-		replaceImgStr := r.URL.Query().Get("replace_image")
-		if strings.ToLower(replaceImgStr) == "true" {
-			l.Debug().Msg("MergeReleaseGroupsHandler: Merge will replace image")
-			replaceImage = true
-		}
-
-		l.Debug().Msgf("MergeReleaseGroupsHandler: Merging release groups from ID %d to ID %d", fromId, toId)
-
-		err = store.MergeAlbums(r.Context(), int32(fromId), int32(toId), replaceImage)
-		if err != nil {
-			l.Err(err).Msg("MergeReleaseGroupsHandler: Failed to merge release groups")
-			utils.WriteError(w, "Failed to merge release groups: "+err.Error(), http.StatusInternalServerError)
-			return
-		}
-
-		l.Debug().Msgf("MergeReleaseGroupsHandler: Successfully merged release groups from ID %d to ID %d", fromId, toId)
-		w.WriteHeader(http.StatusNoContent)
-	}
-}
-
-func MergeArtistsHandler(store db.DB) http.HandlerFunc {
+func MergeArtistsHandler(store db.ArtistStore) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		l := logger.FromContext(r.Context())
 
 		l.Debug().Msg("MergeArtistsHandler: Received request to merge artists")
 
-		fromidStr := r.URL.Query().Get("from_id")
-		fromId, err := strconv.Atoi(fromidStr)
+		body, err := utils.DecodeBody[struct {
+			MergeFromID  int32 `json:"merge_from_id"`
+			ReplaceImage bool  `json:"replace_image"`
+		}](r)
 		if err != nil {
-			l.Debug().AnErr("error", err).Msg("MergeArtistsHandler: Invalid from_id parameter")
-			utils.WriteError(w, "from_id is invalid", http.StatusBadRequest)
+			l.Debug().AnErr("error", err).Msg("MergeArtistsHandler: request body invalid or missing")
+			utils.WriteError(w, "request body is invalid or missing", http.StatusBadRequest)
+			return
+		} else if body.MergeFromID == 0 {
+			l.Debug().AnErr("error", err).Msg("MergeArtistsHandler: required body key 'merge_from_id' invalid or missing")
+			utils.WriteError(w, "merge_from_id is invalid or missing", http.StatusBadRequest)
 			return
 		}
 
-		toidStr := r.URL.Query().Get("to_id")
-		toId, err := strconv.Atoi(toidStr)
+		toId, err := utils.ParseIDParam(r, "id")
 		if err != nil {
-			l.Debug().AnErr("error", err).Msg("MergeArtistsHandler: Invalid to_id parameter")
-			utils.WriteError(w, "to_id is invalid", http.StatusBadRequest)
+			l.Debug().AnErr("error", err).Msg("MergeArtistsHandler: Invalid artist id")
+			utils.WriteError(w, "invalid artist id", http.StatusBadRequest)
 			return
 		}
 
-		var replaceImage bool
-		replaceImgStr := r.URL.Query().Get("replace_image")
-		if strings.ToLower(replaceImgStr) == "true" {
-			l.Debug().Msg("MergeReleaseGroupsHandler: Merge will replace image")
-			replaceImage = true
-		}
+		l.Debug().Msgf("MergeArtistsHandler: Merging artists from ID %d to ID %d", body.MergeFromID, toId)
 
-		l.Debug().Msgf("MergeArtistsHandler: Merging artists from ID %d to ID %d", fromId, toId)
-
-		err = store.MergeArtists(r.Context(), int32(fromId), int32(toId), replaceImage)
+		err = store.MergeArtists(r.Context(), body.MergeFromID, toId, body.ReplaceImage)
 		if err != nil {
 			l.Err(err).Msg("MergeArtistsHandler: Failed to merge artists")
 			utils.WriteError(w, "Failed to merge artists: "+err.Error(), http.StatusInternalServerError)
 			return
 		}
 
-		l.Debug().Msgf("MergeArtistsHandler: Successfully merged artists from ID %d to ID %d", fromId, toId)
+		l.Debug().Msgf("MergeArtistsHandler: Successfully merged artists from ID %d to ID %d", body.MergeFromID, toId)
 		w.WriteHeader(http.StatusNoContent)
 	}
 }
 
-func UpdateAlbumHandler(store db.DB) http.HandlerFunc {
+func MergeAlbumsHandler(store db.AlbumStore) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		ctx := r.Context()
-		l := logger.FromContext(ctx)
+		l := logger.FromContext(r.Context())
 
-		l.Debug().Msg("UpdateAlbumHandler: Received request")
+		l.Debug().Msg("MergeAlbumsHandler: Received request to merge release groups")
 
-		idStr := r.URL.Query().Get("id")
-		id, err := strconv.Atoi(idStr)
-
-		valStr := r.URL.Query().Get("is_various_artists")
-		var variousArists bool
-		var updateVariousArtists = false
-		if strings.ToLower(valStr) == "true" {
-			variousArists = true
-			updateVariousArtists = true
-		} else if strings.ToLower(valStr) == "false" {
-			variousArists = false
-			updateVariousArtists = true
-		}
+		body, err := utils.DecodeBody[struct {
+			MergeFromID  int32 `json:"merge_from_id"`
+			ReplaceImage bool  `json:"replace_image"`
+		}](r)
 		if err != nil {
-			l.Debug().AnErr("error", err).Msg("UpdateAlbumHandler: Invalid id parameter")
-			utils.WriteError(w, "id is invalid", http.StatusBadRequest)
+			l.Debug().AnErr("error", err).Msg("MergeAlbumsHandler: request body invalid or missing")
+			utils.WriteError(w, "request body is invalid or missing", http.StatusBadRequest)
+			return
+		} else if body.MergeFromID == 0 {
+			l.Debug().AnErr("error", err).Msg("MergeAlbumsHandler: required body key 'merge_from_id' invalid or missing")
+			utils.WriteError(w, "merge_from_id is invalid or missing", http.StatusBadRequest)
 			return
 		}
 
-		err = store.UpdateAlbum(ctx, db.UpdateAlbumOpts{
-			ID:                   int32(id),
-			VariousArtistsUpdate: updateVariousArtists,
-			VariousArtistsValue:  variousArists,
-		})
+		toId, err := utils.ParseIDParam(r, "id")
 		if err != nil {
-			l.Debug().AnErr("error", err).Msg("UpdateAlbumHandler: Failed to update album")
-			utils.WriteError(w, "failed to update album", http.StatusBadRequest)
+			l.Debug().AnErr("error", err).Msg("MergeAlbumsHandler: Invalid album id")
+			utils.WriteError(w, "invalid album id", http.StatusBadRequest)
 			return
 		}
 
-		l.Debug().Msg("UpdateAlbumHandler: Successfully updated album")
+		l.Debug().Msgf("MergeAlbumsHandler: Merging albums from ID %d to ID %d", body.MergeFromID, toId)
 
+		err = store.MergeAlbums(r.Context(), body.MergeFromID, toId, body.ReplaceImage)
+		if err != nil {
+			l.Err(err).Msg("MergeAlbumsHandler: Failed to merge albums")
+			utils.WriteError(w, "Failed to merge albums: "+err.Error(), http.StatusInternalServerError)
+			return
+		}
+
+		l.Debug().Msgf("MergeAlbumsHandler: Successfully merged albums from ID %d to ID %d", body.MergeFromID, toId)
+		w.WriteHeader(http.StatusNoContent)
+	}
+}
+
+func MergeTracksHandler(store db.TrackStore) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		l := logger.FromContext(r.Context())
+
+		l.Debug().Msg("MergeTracksHandler: Received request to merge tracks")
+
+		body, err := utils.DecodeBody[struct {
+			MergeFromID int32 `json:"merge_from_id"`
+		}](r)
+		if err != nil {
+			l.Debug().AnErr("error", err).Msg("MergeTracksHandler: request body invalid or missing")
+			utils.WriteError(w, "request body is invalid or missing", http.StatusBadRequest)
+			return
+		} else if body.MergeFromID == 0 {
+			l.Debug().AnErr("error", err).Msg("MergeTracksHandler: required body key 'merge_from_id' invalid or missing")
+			utils.WriteError(w, "merge_from_id is invalid or missing", http.StatusBadRequest)
+			return
+		}
+
+		toId, err := utils.ParseIDParam(r, "id")
+		if err != nil {
+			l.Debug().AnErr("error", err).Msg("MergeTracksHandler: Invalid track id")
+			utils.WriteError(w, "invalid track id", http.StatusBadRequest)
+			return
+		}
+
+		l.Debug().Msgf("MergeTracksHandler: Merging tracks from ID %d to ID %d", body.MergeFromID, toId)
+
+		err = store.MergeTracks(r.Context(), body.MergeFromID, toId)
+		if err != nil {
+			l.Err(err).Msg("MergeTracksHandler: Failed to merge tracks")
+			utils.WriteError(w, "Failed to merge tracks: "+err.Error(), http.StatusInternalServerError)
+			return
+		}
+
+		l.Debug().Msgf("MergeTracksHandler: Successfully merged tracks from ID %d to ID %d", body.MergeFromID, toId)
 		w.WriteHeader(http.StatusNoContent)
 	}
 }

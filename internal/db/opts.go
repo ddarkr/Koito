@@ -87,6 +87,8 @@ type UpdateTrackOpts struct {
 	ID            int32
 	MusicBrainzID uuid.UUID
 	Duration      int32
+	AddArtists    []int32
+	RemoveArtists []int32
 }
 
 type UpdateArtistOpts struct {
@@ -113,6 +115,11 @@ type UpdateUserOpts struct {
 
 type AddArtistsToAlbumOpts struct {
 	AlbumID   int32
+	ArtistIDs []int32
+}
+
+type AddArtistsToTrackOpts struct {
+	TrackID   int32
 	ArtistIDs []int32
 }
 

@@ -1,11 +1,20 @@
 import { getCfg, type User } from "api/api";
 import { createContext, useContext, useEffect, useState } from "react";
+import pkg from "../../package.json";
+import semver from "semver";
+
+function isNewerVersion(current: string, latest: string): boolean {
+  return semver.gt(latest, current);
+}
 
 interface AppContextType {
   user: User | null | undefined;
   configurableHomeActivity: boolean;
   homeItems: number;
   defaultTheme: string;
+  currentVersion: string;
+  updateAvailable: boolean;
+  firstActivity: Date | undefined;
   setConfigurableHomeActivity: (value: boolean) => void;
   setHomeItems: (value: number) => void;
   setUsername: (value: string) => void;
@@ -24,7 +33,7 @@ export const useAppContext = () => {
 export const AppProvider = ({ children }: { children: React.ReactNode }) => {
   const [user, setUser] = useState<User | null | undefined>(undefined);
   const [defaultTheme, setDefaultTheme] = useState<string | undefined>(
-    undefined
+    undefined,
   );
   const [configurableHomeActivity, setConfigurableHomeActivity] =
     useState<boolean>(false);
@@ -37,8 +46,13 @@ export const AppProvider = ({ children }: { children: React.ReactNode }) => {
     setUser({ ...user, username: value });
   };
 
+  const currentVersion = import.meta.env.VITE_KOITO_VERSION || pkg.version;
+
+  const [updateAvailable, setUpdateAvailable] = useState<boolean>(false);
+  const [firstActivity, setFirstActivity] = useState<Date | undefined>();
+
   useEffect(() => {
-    fetch("/apis/web/v1/user/me")
+    fetch("/apis/web/v1/user")
       .then((res) => res.json())
       .then((data) => {
         data.error ? setUser(null) : setUser(data);
@@ -56,6 +70,24 @@ export const AppProvider = ({ children }: { children: React.ReactNode }) => {
         setDefaultTheme("yuu");
       }
     });
+
+    fetch("/apis/web/v1/first-activity")
+      .then((r) => r.json())
+      .then((data) => {
+        if (!data.error) {
+          setFirstActivity(new Date(data.time));
+        }
+      })
+      .catch(() => {});
+  }, []);
+
+  useEffect(() => {
+    fetch("https://api.github.com/repos/gabehf/koito/releases/latest")
+      .then((r) => r.json())
+      .then((r) => {
+        setUpdateAvailable(isNewerVersion(currentVersion, r.tag_name));
+      })
+      .catch((err) => console.log(err));
   }, []);
 
   // Block rendering the app until config is loaded
@@ -68,6 +100,9 @@ export const AppProvider = ({ children }: { children: React.ReactNode }) => {
     configurableHomeActivity,
     homeItems,
     defaultTheme,
+    currentVersion,
+    updateAvailable,
+    firstActivity,
     setConfigurableHomeActivity,
     setHomeItems,
     setUsername,

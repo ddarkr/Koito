@@ -2,10 +2,9 @@ import { ExternalLink, History, Home, Info } from "lucide-react";
 import SidebarSearch from "./SidebarSearch";
 import SidebarItem from "./SidebarItem";
 import SidebarSettings from "./SidebarSettings";
-import { getRewindParams, getRewindYear } from "~/utils/utils";
 
 export default function Sidebar() {
-  const iconSize = 20;
+  const iconSize = 18;
 
   return (
     <div
@@ -27,12 +26,15 @@ export default function Sidebar() {
             border-(--color-bg-tertiary)
             pt-2
             sm:py-10
-            sm:px-1
+            sm:px-3
             px-4
             bg-(--color-bg)
+            text-(--color-fg-secondary)
         "
     >
       <div className="flex gap-4 sm:flex-col">
+        <SidebarSearch size={iconSize} />
+        <div className="hidden sm:flex"></div>
         <SidebarItem
           space={10}
           to="/"
@@ -42,7 +44,6 @@ export default function Sidebar() {
         >
           <Home size={iconSize} />
         </SidebarItem>
-        <SidebarSearch size={iconSize} />
         <SidebarItem
           space={10}
           to="/rewind"
@@ -64,7 +65,7 @@ export default function Sidebar() {
           onClick={() => {}}
           modal={<></>}
         >
-          <Info size={iconSize} />
+          <Info size={iconSize} className="relative" />
         </SidebarItem>
         <SidebarSettings size={iconSize} />
       </div>

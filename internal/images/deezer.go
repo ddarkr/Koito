@@ -73,7 +73,7 @@ func (c *DeezerClient) queue(ctx context.Context, req *http.Request) ([]byte, er
 			done <- queue.RequestResult{Err: err}
 			return
 		} else if resp.StatusCode >= 300 || resp.StatusCode < 200 {
-			err = fmt.Errorf("recieved non-ok status from Deezer: %s", resp.Status)
+			err = fmt.Errorf("received non-ok status from Deezer: %s", resp.Status)
 			done <- queue.RequestResult{Body: nil, Err: err}
 		}
 		defer resp.Body.Close()
@@ -122,7 +122,7 @@ func (c *DeezerClient) GetArtistImages(ctx context.Context, aliases []string) (s
 
 	// Deezer very often uses romanized names for foreign artists, so check those first
 	for _, a := range aliasesAscii {
-		err := c.getEntity(ctx, fmt.Sprintf(artistImageEndpoint, url.QueryEscape(fmt.Sprintf("artist:\"%s\"", a))), resp)
+		err := c.getEntity(ctx, fmt.Sprintf(artistImageEndpoint, url.QueryEscape(fmt.Sprintf("%s", a))), resp)
 		if err != nil {
 			return "", fmt.Errorf("GetArtistImages: %w", err)
 		}
@@ -140,7 +140,7 @@ func (c *DeezerClient) GetArtistImages(ctx context.Context, aliases []string) (s
 
 	// if no romanized name exists or couldn't be found, check the rest
 	for _, a := range utils.RemoveInBoth(aliasesUniq, aliasesAscii) {
-		err := c.getEntity(ctx, fmt.Sprintf(artistImageEndpoint, url.QueryEscape(fmt.Sprintf("artist:\"%s\"", a))), resp)
+		err := c.getEntity(ctx, fmt.Sprintf(artistImageEndpoint, url.QueryEscape(fmt.Sprintf("%s", a))), resp)
 		if err != nil {
 			return "", fmt.Errorf("GetArtistImages: %w", err)
 		}
@@ -180,7 +180,7 @@ func (c *DeezerClient) GetAlbumImages(ctx context.Context, artists []string, alb
 	}
 
 	// if none are found, try to find an album just by album title
-	err := c.getEntity(ctx, fmt.Sprintf(albumImageEndpoint, url.QueryEscape(fmt.Sprintf("album:\"%s\"", album))), resp)
+	err := c.getEntity(ctx, fmt.Sprintf(albumImageEndpoint, url.QueryEscape(fmt.Sprintf("%s", album))), resp)
 	if err != nil {
 		return "", fmt.Errorf("GetAlbumImages: %w", err)
 	}

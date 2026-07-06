@@ -5,38 +5,8 @@ endif
 
 .PHONY: all test clean client
 
-postgres.schemadump:
-	podman run --rm --network=host --env PGPASSWORD=secret -v "./db:/tmp/dump" \
-	postgres pg_dump \
-	--schema-only \
-	--host=localhost \
-	--port=5432 \
-	--username=postgres \
-	-v --dbname="koitodb" -f "/tmp/dump/schema.sql"
-
-postgres.run:
-	docker run --name koito-db -p 5432:5432 -v koito_dev_db:/var/lib/postgresql -e POSTGRES_PASSWORD=secret -d postgres
-
-postgres.run-scratch:
-	podman run --name koito-scratch -p 5433:5432 -e POSTGRES_PASSWORD=secret -d postgres
-
-postgres.start:
-	podman start koito-db
-
-postgres.stop:
-	podman stop koito-db
-
-postgres.remove:
-	podman stop koito-db && podman rm koito-db
-
-postgres.remove-scratch:
-	podman stop koito-scratch && podman rm koito-scratch
-
-api.debug: postgres.start
+api.debug:
 	go run cmd/api/main.go
-
-api.scratch: postgres.run-scratch
-	KOITO_DATABASE_URL=postgres://postgres:secret@localhost:5433?sslmode=disable go run cmd/api/main.go
 
 api.test:
 	go test ./... -timeout 60s
@@ -55,6 +25,7 @@ client.deps:
 
 client.build: client.deps
 	cd client && yarn run build
+	find client/build/client -type f \( -name "*.js" -o -name "*.css" -o -name "*.html" -o -name "*.svg" \) -exec gzip -k -9 {} \;
 
 test: api.test
 

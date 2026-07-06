@@ -18,6 +18,10 @@ on:
     paths-ignore:
       - "docs/**"
       - "README.md"
+      - ".env.example"
+  pull_request:
+    branches:
+      - "main"
 
   workflow_dispatch:
 
@@ -82,13 +86,19 @@ jobs:
           registry: ghcr.io
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
-
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
-
-      - name: Extract tag version
-        run: echo "KOITO_VERSION=${GITHUB_REF#refs/tags/}" >> $GITHUB_ENV
-
+      - name: Extract metadata
+        id: meta
+        uses: docker/metadata-action@v6
+        with:
+          images: ghcr.io/ddarkr/koito
+          tags: |
+            type=semver,pattern={{version}}
+            type=semver,pattern={{major}}.{{minor}}
+            type=semver,pattern={{major}}
+          flavor: |
+            prefix=v
       - name: Build and push release image
         id: push
         uses: docker/build-push-action@v6
@@ -96,11 +106,10 @@ jobs:
           context: .
           file: ./Dockerfile
           push: true
-          tags: |
-            ghcr.io/doda-dev/koito:latest
-            ghcr.io/doda-dev/koito:${{ env.KOITO_VERSION }}
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
           build-args: |
-            KOITO_VERSION=${{ env.KOITO_VERSION }}
+            KOITO_VERSION=${{ steps.meta.outputs.version }}
           platforms: linux/amd64,linux/arm64
           cache-from: type=gha
           cache-to: type=gha,mode=max

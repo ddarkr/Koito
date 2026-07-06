@@ -1,6 +1,7 @@
 package engine
 
 import (
+	"mime"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -31,31 +32,41 @@ func bindRoutes(
 			AllowedMethods: []string{"GET", "OPTIONS", "HEAD"},
 		}))
 	}
+	r.Use(chimiddleware.GetHead)
+
 	r.With(chimiddleware.RequestSize(5<<20)).
-		Get("/images/{size}/{filename}", handlers.ImageHandler(db))
+		Get("/image/{image_id}/{filename}", handlers.ImageHandler(db))
 
 	r.Route("/apis/web/v1", func(r chi.Router) {
 		r.Get("/config", handlers.GetCfgHandler())
 
 		r.Group(func(r chi.Router) {
-			if cfg.LoginGate() {
-				r.Use(middleware.ValidateSession(db))
-			}
-			r.Get("/artist", handlers.GetArtistHandler(db))
-			r.Get("/artists", handlers.GetArtistsForItemHandler(db))
-			r.Get("/album", handlers.GetAlbumHandler(db))
-			r.Get("/track", handlers.GetTrackHandler(db))
-			r.Get("/top-tracks", handlers.GetTopTracksHandler(db))
-			r.Get("/top-albums", handlers.GetTopAlbumsHandler(db))
-			r.Get("/top-artists", handlers.GetTopArtistsHandler(db))
+			r.Use(middleware.Authenticate(db, middleware.AuthModeLoginGate))
+			r.Get("/artist/{id}", handlers.GetArtistHandler(db))                  // done
+			r.Get("/artist/{id}/aliases", handlers.GetArtistAliasesHandler(db))   // done
+			r.Get("/artist/{id}/interest", handlers.GetArtistInterestHandler(db)) // done
+
+			r.Get("/album/{id}", handlers.GetAlbumHandler(db))                   // done
+			r.Get("/album/{id}/artists", handlers.GetArtistsForAlbumHandler(db)) // done
+			r.Get("/album/{id}/aliases", handlers.GetAlbumAliasesHandler(db))    // done
+			r.Get("/album/{id}/interest", handlers.GetAlbumInterestHandler(db))  // done
+
+			r.Get("/track/{id}", handlers.GetTrackHandler(db))                   // done
+			r.Get("/track/{id}/artists", handlers.GetArtistsForTrackHandler(db)) // done
+			r.Get("/track/{id}/aliases", handlers.GetTrackAliasesHandler(db))    // done
+			r.Get("/track/{id}/interest", handlers.GetTrackInterestHandler(db))  // done
+
+			r.Get("/top/tracks", handlers.GetTopTracksHandler(db))
+			r.Get("/top/albums", handlers.GetTopAlbumsHandler(db))
+			r.Get("/top/artists", handlers.GetTopArtistsHandler(db))
+
 			r.Get("/listens", handlers.GetListensHandler(db))
 			r.Get("/listen-activity", handlers.GetListenActivityHandler(db))
+			r.Get("/first-activity", handlers.FirstActivityHandler(db))
 			r.Get("/now-playing", handlers.NowPlayingHandler(db))
 			r.Get("/stats", handlers.StatsHandler(db))
 			r.Get("/search", handlers.SearchHandler(db))
-			r.Get("/aliases", handlers.GetAliasesHandler(db))
 			r.Get("/summary", handlers.SummaryHandler(db))
-			r.Get("/interest", handlers.GetInterestHandler(db))
 		})
 		r.Post("/logout", handlers.LogoutHandler(db))
 		if !cfg.RateLimitDisabled() {
@@ -79,29 +90,48 @@ func bindRoutes(
 		})
 
 		r.Group(func(r chi.Router) {
-			r.Use(middleware.ValidateSession(db))
-			r.Get("/export", handlers.ExportHandler(db))
-			r.Post("/replace-image", handlers.ReplaceImageHandler(db))
-			r.Patch("/album", handlers.UpdateAlbumHandler(db))
-			r.Post("/merge/tracks", handlers.MergeTracksHandler(db))
-			r.Post("/merge/albums", handlers.MergeReleaseGroupsHandler(db))
-			r.Post("/merge/artists", handlers.MergeArtistsHandler(db))
-			r.Delete("/artist", handlers.DeleteArtistHandler(db))
-			r.Post("/artists/primary", handlers.SetPrimaryArtistHandler(db))
-			r.Delete("/album", handlers.DeleteAlbumHandler(db))
-			r.Delete("/track", handlers.DeleteTrackHandler(db))
-			r.Post("/listen", handlers.SubmitListenWithIDHandler(db))
-			r.Delete("/listen", handlers.DeleteListenHandler(db))
-			r.Post("/aliases", handlers.CreateAliasHandler(db))
-			r.Post("/aliases/delete", handlers.DeleteAliasHandler(db))
-			r.Post("/aliases/primary", handlers.SetPrimaryAliasHandler(db))
-			r.Patch("/mbzid", handlers.UpdateMbzIdHandler(db))
+			r.Use(middleware.Authenticate(db, middleware.AuthModeSessionOrAPIKey))
+
+			r.Delete("/artist/{id}", handlers.DeleteArtistHandler(db))
+			r.Delete("/artist/{id}/aliases", handlers.DeleteArtistAliasHandler(db))
+			r.Post("/artist/{id}/merge", handlers.MergeArtistsHandler(db))
+			r.Post("/artist/{id}/aliases", handlers.CreateArtistAliasHandler(db))
+			r.Patch("/artist/{id}", handlers.UpdateArtistHandler(db))
+			r.Patch("/artist/{id}/image", handlers.ReplaceArtistImageHandler(db))
+			r.Patch("/artist/{id}/aliases/primary", handlers.SetPrimaryArtistAliasHandler(db))
+
+			r.Delete("/album/{id}", handlers.DeleteAlbumHandler(db))
+			r.Delete("/album/{id}/aliases", handlers.DeleteAlbumAliasHandler(db))
+			r.Post("/album/{id}/merge", handlers.MergeAlbumsHandler(db))
+			r.Post("/album/{id}/aliases", handlers.CreateAlbumAliasHandler(db))
+			r.Patch("/album/{id}", handlers.UpdateAlbumHandler(db))
+			r.Patch("/album/{id}/image", handlers.ReplaceAlbumImageHandler(db))
+			r.Patch("/album/{id}/aliases/primary", handlers.SetPrimaryAlbumAliasHandler(db))
+			r.Patch("/album/{id}/artists/{artist_id}", handlers.SetPrimaryAlbumArtistHandler(db))
+
+			r.Delete("/track/{id}", handlers.DeleteTrackHandler(db))
+			r.Delete("/track/{id}/aliases", handlers.DeleteTrackAliasHandler(db))
+			r.Delete("/track/{id}/artists/{artist_id}", handlers.DeleteTrackArtistHandler(db))
+			r.Post("/track/{id}/merge", handlers.MergeTracksHandler(db))
+			r.Post("/track/{id}/aliases", handlers.CreateTrackAliasHandler(db))
+			r.Post("/track/{id}/artists", handlers.AddTrackArtistsHandler(db))
+			r.Patch("/track/{id}", handlers.UpdateTrackHandler(db))
+			r.Patch("/track/{id}/aliases/primary", handlers.SetPrimaryTrackAliasHandler(db))
+			r.Patch("/track/{id}/artists/{artist_id}", handlers.SetPrimaryTrackArtistHandler(db))
+
+			r.Post("/listens", handlers.SubmitListenWithIDHandler(db))
+			r.Delete("/listens", handlers.DeleteListenHandler(db))
+
 			r.Get("/user/apikeys", handlers.GetApiKeysHandler(db))
 			r.Post("/user/apikeys", handlers.GenerateApiKeyHandler(db))
-			r.Patch("/user/apikeys", handlers.UpdateApiKeyLabelHandler(db))
-			r.Delete("/user/apikeys", handlers.DeleteApiKeyHandler(db))
-			r.Get("/user/me", handlers.MeHandler(db))
+			r.Patch("/user/apikeys/{id}", handlers.UpdateApiKeyLabelHandler(db))
+			r.Delete("/user/apikeys/{id}", handlers.DeleteApiKeyHandler(db))
+
+			r.Get("/user", handlers.MeHandler())
 			r.Patch("/user", handlers.UpdateUserHandler(db))
+
+			r.Get("/export", handlers.ExportHandler(db))
+			r.Delete("/data", handlers.PurgeAllDataHandler(db))
 		})
 	})
 
@@ -111,8 +141,10 @@ func bindRoutes(
 			AllowedHeaders: []string{"Content-Type", "Authorization"},
 		}))
 
-		r.With(middleware.ValidateApiKey(db)).Post("/submit-listens", handlers.LbzSubmitListenHandler(db, mbz))
-		r.With(middleware.ValidateApiKey(db)).Get("/validate-token", handlers.LbzValidateTokenHandler(db))
+		r.With(middleware.Authenticate(db, middleware.AuthModeAPIKey)).
+			Post("/submit-listens", handlers.LbzSubmitListenHandler(db, mbz))
+		r.With(middleware.Authenticate(db, middleware.AuthModeAPIKey)).
+			Get("/validate-token", handlers.LbzValidateTokenHandler())
 	})
 
 	// serve react client
@@ -125,25 +157,44 @@ func bindRoutes(
 	publicServer(r, "/public", filesDir)
 }
 
-// FileServer conveniently sets up a http.FileServer handler to serve
-// static files from a http.FileSystem.
 func fileServer(r chi.Router, path string, root http.FileSystem) {
 	if strings.ContainsAny(path, "{}*") {
 		panic("FileServer does not permit any URL parameters.")
 	}
 
-	// Serve static files
 	fs := http.FileServer(root)
+
 	r.Get(path+"*", func(w http.ResponseWriter, r *http.Request) {
-		// Check if file exists
 		filePath := filepath.Join("client/build/client", strings.TrimPrefix(r.URL.Path, path))
+
 		if _, err := os.Stat(filePath); os.IsNotExist(err) {
-			// File doesn't exist, serve index.html
+			w.Header().Set("Cache-Control", "no-cache, no-store, must-revalidate")
 			http.ServeFile(w, r, filepath.Join("client/build/client", "index.html"))
 			return
 		}
 
-		// Serve file normally
+		ext := strings.ToLower(filepath.Ext(filePath))
+		switch ext {
+		case ".js", ".css", ".woff", ".woff2", ".ttf", ".eot",
+			".png", ".jpg", ".jpeg", ".gif", ".webp", ".svg", ".ico":
+			w.Header().Set("Cache-Control", "public, max-age=31536000, immutable")
+		default:
+			w.Header().Set("Cache-Control", "no-cache")
+		}
+
+		// Serve pre-compressed file if the client accepts gzip and it exists
+		if strings.Contains(r.Header.Get("Accept-Encoding"), "gzip") {
+			gzPath := filePath + ".gz"
+			if _, err := os.Stat(gzPath); err == nil {
+				w.Header().Set("Content-Encoding", "gzip")
+				w.Header().Set("Vary", "Accept-Encoding")
+				// Set the correct Content-Type for the original file, not .gz
+				w.Header().Set("Content-Type", mime.TypeByExtension(ext))
+				http.ServeFile(w, r, gzPath)
+				return
+			}
+		}
+
 		fs.ServeHTTP(w, r)
 	})
 }
